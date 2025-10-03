@@ -1,1 +1,1 @@
-web: gunicorn --config gunicorn.conf.py qumail_client.app:app
+web: python wsgi.py
