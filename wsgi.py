@@ -33,6 +33,9 @@ except Exception as e:
     logger.error(f"Files in current directory: {os.listdir('.')}")
     raise
 
+# This is the WSGI callable that Gunicorn looks for
+application = app
+
 if __name__ == "__main__":
     try:
         # Get port from environment variable (Render sets this)

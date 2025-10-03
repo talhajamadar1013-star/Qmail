@@ -4,7 +4,7 @@ services:
     env: python
     region: oregon
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python app_simple.py"
+    startCommand: "python qumail_client/app.py"
     plan: free
     healthCheckPath: "/health"
     envVars:
@@ -15,11 +15,33 @@ services:
       - key: FLASK_ENV
         value: production
       - key: SECRET_KEY
-        generateValue: true
+        value: qumail_secret_key_for_sessions_2024_development_secure
       - key: DATABASE_URL
-        fromDatabase:
-          name: qumail-db
-          property: connectionString
+        value: postgresql://neondb_owner:npg_Yh1G8pWlMXri@ep-hidden-field-a1fu6wpk-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+      - key: ENABLE_EMBEDDED_KM
+        value: True
+      - key: KM_SECRET_KEY
+        value: qumail_embedded_km_secret_key_2024_secure_dev
+      - key: POLYGON_RPC_URL
+        value: https://rpc-amoy.polygon.technology
+      - key: PRIVATE_KEY
+        value: 0xe66466c2a42d9335011ffe59257cec13b880b565a3f06a16b4d49c32bad966af
+      - key: WALLET_ADDRESS
+        value: 0xFc078bD8906df7162A4BB0E0492aE900Ab06d4ec
+      - key: PINATA_API_KEY
+        value: 54d190c3e8d539d2169f
+      - key: PINATA_SECRET_KEY
+        value: 4a36872d2afb1976a899cc804bc284df484d321165b6469b9a57f003d6124e56
+      - key: SYSTEM_EMAIL
+        value: razavcf1@gmail.com
+      - key: SYSTEM_EMAIL_PASSWORD
+        value: nbpabpjwzzbaanai
+      - key: INTEGRITY_VERIFIER_CONTRACT
+        value: 0x8A94f6BAb7A70C981ade6b7b8968ABAd82952098
+      - key: ENABLE_BLOCKCHAIN_VERIFICATION
+        value: True
+      - key: ENABLE_IPFS_STORAGE
+        value: True
 
   - type: pserv
     name: qumail-db

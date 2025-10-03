@@ -52,14 +52,17 @@ def tojsonpretty_filter(value):
         return json.dumps(value, indent=2, ensure_ascii=False)
     except (TypeError, ValueError):
         return str(value)
-# Configure logging
+# Configure logging for production
+log_handlers = [logging.StreamHandler()]
+
+# Only use file logging if logs directory exists
+if os.path.exists('./logs'):
+    log_handlers.append(logging.FileHandler('./logs/qumail.log'))
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('./logs/qumail.log'),
-        logging.StreamHandler()
-    ]
+    handlers=log_handlers
 )
 logger = logging.getLogger(__name__)
 
@@ -72,7 +75,7 @@ blockchain_verifier = None
 ipfs_storage = None
 
 def initialize_components():
-    """Initialize all QuMail components"""
+    """Initialize all QuMail components with fallback handling"""
     global config, key_manager, quantum_crypto, email_client, blockchain_verifier, ipfs_storage
     
     try:
@@ -80,31 +83,50 @@ def initialize_components():
         config = load_config()
         logger.info("Configuration loaded successfully")
         
-        # Initialize Key Manager (Neon Database)
-        key_manager = NeonKeyManager(config)
-        logger.info("Neon Key Manager initialized")
+        # Initialize components with individual error handling
+        try:
+            key_manager = NeonKeyManager(config)
+            logger.info("Neon Key Manager initialized")
+        except Exception as e:
+            logger.warning(f"Key Manager initialization failed: {e}")
+            key_manager = None
         
-        # Initialize Quantum Encryption
-        quantum_crypto = QuantumEncryption(config)
-        logger.info("Quantum encryption initialized")
+        try:
+            quantum_crypto = QuantumEncryption(config)
+            logger.info("Quantum encryption initialized")
+        except Exception as e:
+            logger.warning(f"Quantum encryption initialization failed: {e}")
+            quantum_crypto = None
         
-        # Initialize Email Client
-        email_client = EmailClient(config)
-        logger.info("Email client initialized")
+        try:
+            email_client = EmailClient(config)
+            logger.info("Email client initialized")
+        except Exception as e:
+            logger.warning(f"Email client initialization failed: {e}")
+            email_client = None
         
-        # Initialize Blockchain Verifier
-        if config.ENABLE_BLOCKCHAIN_VERIFICATION:
-            blockchain_verifier = BlockchainVerifier(config)
-            logger.info("Blockchain verifier initialized")
+        # Initialize Blockchain Verifier (optional)
+        if hasattr(config, 'ENABLE_BLOCKCHAIN_VERIFICATION') and config.ENABLE_BLOCKCHAIN_VERIFICATION:
+            try:
+                blockchain_verifier = BlockchainVerifier(config)
+                logger.info("Blockchain verifier initialized")
+            except Exception as e:
+                logger.warning(f"Blockchain verifier initialization failed: {e}")
+                blockchain_verifier = None
         
-        # Initialize IPFS Storage
-        if config.ENABLE_IPFS_STORAGE:
-            ipfs_storage = IPFSStorage(config)
-            logger.info("IPFS storage initialized")
+        # Initialize IPFS Storage (optional)
+        if hasattr(config, 'ENABLE_IPFS_STORAGE') and config.ENABLE_IPFS_STORAGE:
+            try:
+                ipfs_storage = IPFSStorage(config)
+                logger.info("IPFS storage initialized")
+            except Exception as e:
+                logger.warning(f"IPFS storage initialization failed: {e}")
+                ipfs_storage = None
             
     except Exception as e:
-        logger.error(f"Failed to initialize components: {e}")
-        return False
+        logger.error(f"Critical configuration error: {e}")
+        # Still allow the app to start with minimal functionality
+        config = None
     
     return True
 
@@ -1403,10 +1425,9 @@ def main():
         # Create necessary directories
         create_directories()
         
-        # Initialize components
-        if not initialize_components():
-            logger.error("Failed to initialize QuMail components")
-            return
+        # Initialize components (non-blocking)
+        initialize_components()
+        logger.info("Component initialization completed")
         
         # Get Flask configuration from environment
         # For cloud deployment (like Render), use 0.0.0.0 and PORT env var
