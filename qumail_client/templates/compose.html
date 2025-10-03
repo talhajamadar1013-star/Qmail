@@ -260,6 +260,187 @@
         color: var(--neutral-gray);
     }
 
+    /* File Preview Styles */
+    .file-actions {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        margin-left: auto;
+    }
+
+    .preview-btn, .remove-btn {
+        background: var(--glass-bg);
+        border: 1px solid var(--glass-border);
+        border-radius: 6px;
+        padding: 0.4rem 0.8rem;
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .preview-btn {
+        color: var(--primary-blue);
+    }
+
+    .preview-btn:hover {
+        background: var(--primary-blue);
+        color: white;
+    }
+
+    .remove-btn {
+        color: #dc3545;
+    }
+
+    .remove-btn:hover {
+        background: #dc3545;
+        color: white;
+    }
+
+    .file-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem;
+        background: var(--glass-bg);
+        border: 1px solid var(--glass-border);
+        border-radius: 12px;
+        margin-bottom: 0.5rem;
+        transition: all 0.3s ease;
+    }
+
+    .file-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Preview Modal Styles */
+    .preview-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(10px);
+        z-index: 10000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+    }
+
+    .preview-modal.active {
+        display: flex;
+    }
+
+    .preview-content {
+        background: var(--glass-bg);
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border);
+        border-radius: 20px;
+        max-width: 90vw;
+        max-height: 90vh;
+        overflow: hidden;
+        position: relative;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+    }
+
+    .preview-header {
+        background: linear-gradient(135deg, var(--primary-green), var(--primary-blue));
+        color: white;
+        padding: 1rem 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .preview-title {
+        font-weight: 600;
+        margin: 0;
+        flex: 1;
+    }
+
+    .preview-close {
+        background: none;
+        border: none;
+        color: white;
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 0.25rem;
+        border-radius: 4px;
+        transition: background 0.3s ease;
+    }
+
+    .preview-close:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .preview-body {
+        padding: 2rem;
+        max-height: 70vh;
+        overflow: auto;
+    }
+
+    .preview-image {
+        max-width: 100%;
+        max-height: 60vh;
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        object-fit: contain;
+    }
+
+    .preview-text {
+        background: #f8f9fa;
+        border-radius: 10px;
+        padding: 1.5rem;
+        font-family: 'Courier New', monospace;
+        white-space: pre-wrap;
+        max-height: 50vh;
+        overflow: auto;
+        border: 1px solid #e9ecef;
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+
+    .preview-pdf {
+        width: 100%;
+        height: 60vh;
+        border: none;
+        border-radius: 10px;
+    }
+
+    .file-info-extended {
+        background: #f8f9fa;
+        border-radius: 10px;
+        padding: 1.5rem;
+        border: 1px solid #e9ecef;
+    }
+
+    .file-detail {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #e9ecef;
+    }
+
+    .file-detail:last-child {
+        border-bottom: none;
+    }
+
+    .file-detail-label {
+        font-weight: 600;
+        color: var(--text-dark);
+    }
+
+    .file-detail-value {
+        color: var(--neutral-gray);
+        font-family: 'Courier New', monospace;
+        font-size: 0.9rem;
+    }
+
     /* Action Buttons */
     .action-buttons {
         display: flex;
@@ -564,6 +745,21 @@
     </div>
 </div>
 
+<!-- Preview Modal -->
+<div id="previewModal" class="preview-modal">
+    <div class="preview-content">
+        <div class="preview-header">
+            <h3 id="previewTitle" class="preview-title">File Preview</h3>
+            <button class="preview-close" onclick="closePreview()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div id="previewBody" class="preview-body">
+            <!-- Preview content will be dynamically inserted here -->
+        </div>
+    </div>
+</div>
+
 <script>
 // Handle file selection display
 document.getElementById('attachments').addEventListener('change', function(e) {
@@ -644,7 +840,7 @@ document.addEventListener('DOMContentLoaded', function() {
         handleFiles(e.target.files);
     });
     
-    function handleFiles(files) {
+    // Original handleFiles function removed - using enhanced version below
         attachmentsList.innerHTML = '';
         
         if (files.length > 0) {
@@ -666,7 +862,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 `;
                 
+                const fileActions = document.createElement('div');
+                fileActions.className = 'file-actions';
+                
+                const previewBtn = document.createElement('button');
+                previewBtn.className = 'preview-btn';
+                previewBtn.innerHTML = '<i class="fas fa-eye"></i> Preview';
+                previewBtn.onclick = () => previewFile(file, index);
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'remove-btn';
+                removeBtn.innerHTML = '<i class="fas fa-trash"></i> Remove';
+                removeBtn.onclick = () => removeFile(index);
+                
+                fileActions.appendChild(previewBtn);
+                fileActions.appendChild(removeBtn);
+                
                 fileItem.appendChild(fileInfo);
+                fileItem.appendChild(fileActions);
                 attachmentsList.appendChild(fileItem);
             });
         }
@@ -725,6 +938,191 @@ document.addEventListener('DOMContentLoaded', function() {
             submitBtn.disabled = false;
         });
     });
+});
+
+// Global variable to store current files
+let currentFiles = [];
+
+// Preview file function
+function previewFile(file, index) {
+    const modal = document.getElementById('previewModal');
+    const title = document.getElementById('previewTitle');
+    const body = document.getElementById('previewBody');
+    
+    title.textContent = file.name;
+    body.innerHTML = '';
+    
+    // Create file info section
+    const fileInfoDiv = document.createElement('div');
+    fileInfoDiv.className = 'file-info-extended';
+    fileInfoDiv.innerHTML = `
+        <div class="file-detail">
+            <span class="file-detail-label">File Name:</span>
+            <span class="file-detail-value">${file.name}</span>
+        </div>
+        <div class="file-detail">
+            <span class="file-detail-label">File Size:</span>
+            <span class="file-detail-value">${formatFileSize(file.size)}</span>
+        </div>
+        <div class="file-detail">
+            <span class="file-detail-label">File Type:</span>
+            <span class="file-detail-value">${file.type || 'Unknown'}</span>
+        </div>
+        <div class="file-detail">
+            <span class="file-detail-label">Last Modified:</span>
+            <span class="file-detail-value">${new Date(file.lastModified).toLocaleString()}</span>
+        </div>
+        <div class="file-detail">
+            <span class="file-detail-label">Security:</span>
+            <span class="file-detail-value">Will be encrypted with quantum encryption</span>
+        </div>
+    `;
+    
+    body.appendChild(fileInfoDiv);
+    
+    // Add spacing
+    const spacer = document.createElement('div');
+    spacer.style.height = '1.5rem';
+    body.appendChild(spacer);
+    
+    // Handle different file types
+    if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = document.createElement('img');
+            img.src = e.target.result;
+            img.className = 'preview-image';
+            img.alt = file.name;
+            body.appendChild(img);
+        };
+        reader.readAsDataURL(file);
+    } else if (file.type === 'application/pdf') {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const iframe = document.createElement('iframe');
+            iframe.src = e.target.result;
+            iframe.className = 'preview-pdf';
+            body.appendChild(iframe);
+        };
+        reader.readAsDataURL(file);
+    } else if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.md') || file.name.endsWith('.json')) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const pre = document.createElement('div');
+            pre.className = 'preview-text';
+            pre.textContent = e.target.result;
+            body.appendChild(pre);
+        };
+        reader.readAsText(file);
+    } else {
+        const unsupportedDiv = document.createElement('div');
+        unsupportedDiv.innerHTML = `
+            <div style="text-align: center; padding: 2rem; color: var(--neutral-gray);">
+                <i class="fas fa-file" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                <p><strong>Preview not available for this file type</strong></p>
+                <p>The file will be securely encrypted and attached to your email.</p>
+            </div>
+        `;
+        body.appendChild(unsupportedDiv);
+    }
+    
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden'; // Prevent background scrolling
+}
+
+// Close preview modal
+function closePreview() {
+    const modal = document.getElementById('previewModal');
+    modal.classList.remove('active');
+    document.body.style.overflow = ''; // Restore scrolling
+}
+
+// Remove file function
+function removeFile(index) {
+    if (confirm('Are you sure you want to remove this file?')) {
+        const dt = new DataTransfer();
+        const files = Array.from(currentFiles);
+        
+        // Remove the file at the specified index
+        files.splice(index, 1);
+        
+        // Add remaining files back to DataTransfer
+        files.forEach(file => dt.items.add(file));
+        
+        // Update the file input
+        const fileInput = document.getElementById('attachments');
+        fileInput.files = dt.files;
+        
+        // Update current files array
+        currentFiles = files;
+        
+        // Refresh the display
+        handleFiles(dt.files);
+        
+        showNotification('success', 'File removed successfully!');
+    }
+}
+
+// Update handleFiles function to store current files
+function handleFiles(files) {
+    currentFiles = Array.from(files);
+    attachmentsList.innerHTML = '';
+    
+    if (files.length > 0) {
+        Array.from(files).forEach((file, index) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            
+            const fileInfo = document.createElement('div');
+            fileInfo.className = 'file-info';
+            
+            const fileIcon = getFileIcon(file.type);
+            const fileSize = formatFileSize(file.size);
+            
+            fileInfo.innerHTML = `
+                <i class="fas ${fileIcon}" style="color: var(--primary-green);"></i>
+                <div>
+                    <div class="file-name">${file.name}</div>
+                    <div class="file-size">${fileSize}</div>
+                </div>
+            `;
+            
+            const fileActions = document.createElement('div');
+            fileActions.className = 'file-actions';
+            
+            const previewBtn = document.createElement('button');
+            previewBtn.className = 'preview-btn';
+            previewBtn.innerHTML = '<i class="fas fa-eye"></i> Preview';
+            previewBtn.onclick = () => previewFile(file, index);
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-btn';
+            removeBtn.innerHTML = '<i class="fas fa-trash"></i> Remove';
+            removeBtn.onclick = () => removeFile(index);
+            
+            fileActions.appendChild(previewBtn);
+            fileActions.appendChild(removeBtn);
+            
+            fileItem.appendChild(fileInfo);
+            fileItem.appendChild(fileActions);
+            attachmentsList.appendChild(fileItem);
+        });
+    }
+}
+
+// Close modal when clicking outside
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('previewModal');
+    if (e.target === modal) {
+        closePreview();
+    }
+});
+
+// Close modal with Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closePreview();
+    }
 });
 
 function saveDraft() {

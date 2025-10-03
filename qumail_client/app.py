@@ -770,6 +770,60 @@ def api_delete_key(key_id):
         logger.error(f"Failed to delete key: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/preview_attachment', methods=['POST'])
+def preview_attachment():
+    """Preview attachment before sending email"""
+    try:
+        if 'user_id' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+        
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        # Read file data
+        file_data = file.read()
+        file.seek(0)  # Reset file pointer
+        
+        preview_data = {
+            'filename': file.filename,
+            'size': len(file_data),
+            'type': file.content_type or 'application/octet-stream',
+            'last_modified': datetime.now().isoformat()
+        }
+        
+        # Generate preview content based on file type
+        if file.content_type and file.content_type.startswith('text/'):
+            try:
+                preview_data['content'] = file_data.decode('utf-8')[:5000]  # First 5KB
+                preview_data['preview_type'] = 'text'
+            except UnicodeDecodeError:
+                preview_data['preview_type'] = 'binary'
+                preview_data['message'] = 'Binary file - preview not available'
+        elif file.content_type and file.content_type.startswith('image/'):
+            import base64
+            preview_data['content'] = base64.b64encode(file_data).decode('utf-8')
+            preview_data['preview_type'] = 'image'
+        elif file.content_type == 'application/pdf':
+            import base64
+            preview_data['content'] = base64.b64encode(file_data).decode('utf-8')
+            preview_data['preview_type'] = 'pdf'
+        else:
+            preview_data['preview_type'] = 'binary'
+            preview_data['message'] = 'File will be securely encrypted and attached'
+        
+        return jsonify({
+            'success': True,
+            'preview': preview_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Attachment preview failed: {e}")
+        return jsonify({'success': False, 'error': 'Preview failed'}), 500
+
 @app.route('/api/system_status')
 def system_status():
     """System status with lazy component checking"""
