@@ -815,6 +815,12 @@ document.addEventListener('DOMContentLoaded', function() {
     
     fileUploadArea.addEventListener('drop', handleDrop, false);
     
+    // Make upload area clickable
+    fileUploadArea.addEventListener('click', function(e) {
+        if (e.target.classList.contains('file-input')) return; // Don't interfere with file input
+        fileInput.click();
+    });
+    
     function preventDefaults(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -840,50 +846,7 @@ document.addEventListener('DOMContentLoaded', function() {
         handleFiles(e.target.files);
     });
     
-    // Original handleFiles function removed - using enhanced version below
-        attachmentsList.innerHTML = '';
-        
-        if (files.length > 0) {
-            Array.from(files).forEach((file, index) => {
-                const fileItem = document.createElement('div');
-                fileItem.className = 'file-item';
-                
-                const fileInfo = document.createElement('div');
-                fileInfo.className = 'file-info';
-                
-                const fileIcon = getFileIcon(file.type);
-                const fileSize = formatFileSize(file.size);
-                
-                fileInfo.innerHTML = `
-                    <i class="fas ${fileIcon}" style="color: var(--primary-green);"></i>
-                    <div>
-                        <div class="file-name">${file.name}</div>
-                        <div class="file-size">${fileSize}</div>
-                    </div>
-                `;
-                
-                const fileActions = document.createElement('div');
-                fileActions.className = 'file-actions';
-                
-                const previewBtn = document.createElement('button');
-                previewBtn.className = 'preview-btn';
-                previewBtn.innerHTML = '<i class="fas fa-eye"></i> Preview';
-                previewBtn.onclick = () => previewFile(file, index);
-                
-                const removeBtn = document.createElement('button');
-                removeBtn.className = 'remove-btn';
-                removeBtn.innerHTML = '<i class="fas fa-trash"></i> Remove';
-                removeBtn.onclick = () => removeFile(index);
-                
-                fileActions.appendChild(previewBtn);
-                fileActions.appendChild(removeBtn);
-                
-                fileItem.appendChild(fileInfo);
-                fileItem.appendChild(fileActions);
-                attachmentsList.appendChild(fileItem);
-            });
-        }
-    }
+    // handleFiles function is defined later with enhanced functionality
     
     function getFileIcon(fileType) {
         if (fileType.includes('image')) return 'fa-image';
