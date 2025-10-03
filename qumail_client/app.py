@@ -26,8 +26,8 @@ from qumail_client.email.email_client import EmailClient
 from qumail_client.blockchain.verification import BlockchainVerifier
 from qumail_client.ipfs.storage import IPFSStorage
 
-# Load environment variables
-load_dotenv()
+# Load environment variables (but don't override existing environment variables)
+load_dotenv(override=False)
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -1431,10 +1431,14 @@ def main():
         
         # Get Flask configuration from environment
         # For cloud deployment (like Render), use 0.0.0.0 and PORT env var
-        port = int(os.getenv('PORT', os.getenv('FLASK_PORT', 5000)))
+        port = int(os.getenv('PORT', 10000))  # Render sets PORT, fallback to 10000
         
         # For production deployment (Render), always bind to 0.0.0.0
-        host = os.getenv('HOST', '0.0.0.0')
+        # Override any local HOST setting for production
+        if os.getenv('FLASK_ENV') == 'production' or os.getenv('PORT'):  # Render sets PORT
+            host = '0.0.0.0'
+        else:
+            host = os.getenv('HOST', '127.0.0.1')  # Local development
         
         # Disable debug in production
         debug = os.getenv('FLASK_ENV', 'development') != 'production' and os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
