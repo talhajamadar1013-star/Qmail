@@ -91,19 +91,57 @@ class EmailClient:
             if isinstance(encrypted_hash, bytes):
                 encrypted_hash = encrypted_hash.hex()
             
+            attachments = email_data.get('attachments', [])
+            attachment_info = ""
+            if attachments:
+                attachment_info = f"\n\nAttachments ({len(attachments)} files):\n" + "\n".join([f"- {os.path.basename(att) if isinstance(att, str) else att.get('filename', 'Unknown')}" for att in attachments])
+            
             body = f"""This is a secure email sent via QuMail - Quantum Secure Email Client.
 
 From: {sender_email}
 To: {email_data.get('recipient')}
 
 The content has been encrypted using quantum encryption and stored on IPFS.
-To view the decrypted content, please log into QuMail with the recipient email address.
+To view the decrypted content, please log into QuMail with the recipient email address.{attachment_info}
 
 Encrypted Content Hash: {encrypted_hash[:50]}...
 
 QuMail Team"""
             
             msg.attach(MIMEText(body, 'plain'))
+            
+            # Handle file attachments
+            if attachments:
+                logger.info(f"Processing {len(attachments)} attachments")
+                for attachment in attachments:
+                    try:
+                        if isinstance(attachment, str):  # File path
+                            if os.path.exists(attachment):
+                                with open(attachment, "rb") as f:
+                                    part = MIMEBase('application', 'octet-stream')
+                                    part.set_payload(f.read())
+                                    encoders.encode_base64(part)
+                                    part.add_header(
+                                        'Content-Disposition',
+                                        f'attachment; filename= {os.path.basename(attachment)}'
+                                    )
+                                    msg.attach(part)
+                                    logger.info(f"Attached file: {os.path.basename(attachment)}")
+                        elif isinstance(attachment, dict):  # File data dict
+                            filename = attachment.get('filename', 'attachment')
+                            file_data = attachment.get('data', b'')
+                            if file_data:
+                                part = MIMEBase('application', 'octet-stream')
+                                part.set_payload(file_data)
+                                encoders.encode_base64(part)
+                                part.add_header(
+                                    'Content-Disposition',
+                                    f'attachment; filename= {filename}'
+                                )
+                                msg.attach(part)
+                                logger.info(f"Attached file: {filename}")
+                    except Exception as e:
+                        logger.warning(f"Failed to attach file: {e}")
             
             # Connect to SMTP server
             server = smtplib.SMTP(self.smtp_server, self.smtp_port)

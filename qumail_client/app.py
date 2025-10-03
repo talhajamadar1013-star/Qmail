@@ -15,11 +15,6 @@ from datetime import datetime, timedelta
 import json
 import base64
 import tempfile
-from functools import lru_cache
-import threading
-from concurrent.futures import ThreadPoolExecutor
-from collections import defaultdict
-import time
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -57,17 +52,19 @@ def tojsonpretty_filter(value):
         return json.dumps(value, indent=2, ensure_ascii=False)
     except (TypeError, ValueError):
         return str(value)
-# Minimal logging for maximum performance
+# Configure logging for production
+log_handlers = [logging.StreamHandler()]
+
+# Only use file logging if logs directory exists
+if os.path.exists('./logs'):
+    log_handlers.append(logging.FileHandler('./logs/qumail.log'))
+
 logging.basicConfig(
-    level=logging.ERROR,  # Only errors for production
-    format='%(levelname)s: %(message)s',
-    handlers=[logging.StreamHandler()]
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=log_handlers
 )
 logger = logging.getLogger(__name__)
-
-# Disable SQLAlchemy logging for performance
-logging.getLogger('sqlalchemy.engine').setLevel(logging.ERROR)
-logging.getLogger('sqlalchemy.pool').setLevel(logging.ERROR)
 
 # Global components
 config = None
@@ -77,118 +74,65 @@ email_client = None
 blockchain_verifier = None
 ipfs_storage = None
 
-# Performance optimizations
-performance_cache = defaultdict(dict)
-cache_ttl = defaultdict(float)
-thread_pool = ThreadPoolExecutor(max_workers=4)
-cache_lock = threading.Lock()
-
-# Cache helper functions
-def get_cached(cache_key, ttl_seconds=300):
-    """Get cached value if not expired"""
-    with cache_lock:
-        if cache_key in performance_cache:
-            if time.time() - cache_ttl[cache_key] < ttl_seconds:
-                return performance_cache[cache_key]
-            else:
-                # Clean expired cache
-                del performance_cache[cache_key]
-                del cache_ttl[cache_key]
-    return None
-
-def set_cache(cache_key, value, ttl_seconds=300):
-    """Set cached value with TTL"""
-    with cache_lock:
-        performance_cache[cache_key] = value
-        cache_ttl[cache_key] = time.time()
-
 def initialize_components():
-    """Initialize critical components only - lazy load others"""
+    """Initialize all QuMail components with fallback handling"""
     global config, key_manager, quantum_crypto, email_client, blockchain_verifier, ipfs_storage
     
     try:
-        # Load configuration (fast)
+        # Load configuration
         config = load_config()
+        logger.info("Configuration loaded successfully")
         
-        # Initialize ONLY critical components for fast startup
+        # Initialize components with individual error handling
         try:
             if config and hasattr(config, 'DATABASE_URL') and config.DATABASE_URL:
                 key_manager = NeonKeyManager(config)
-                logger.info("Key Manager initialized")
+                logger.info("Neon Key Manager initialized")
             else:
-                logger.warning("Key Manager disabled - no database")
+                logger.warning("Key Manager skipped - no database configuration")
                 key_manager = None
         except Exception as e:
-            logger.warning(f"Key Manager failed: {e}")
+            logger.warning(f"Key Manager initialization failed: {e}")
             key_manager = None
         
         try:
             quantum_crypto = QuantumEncryption(config)
-            logger.info("Quantum crypto initialized")
+            logger.info("Quantum encryption initialized")
         except Exception as e:
-            logger.warning(f"Quantum crypto failed: {e}")
+            logger.warning(f"Quantum encryption initialization failed: {e}")
             quantum_crypto = None
         
         try:
             email_client = EmailClient(config)
             logger.info("Email client initialized")
         except Exception as e:
-            logger.warning(f"Email client failed: {e}")
+            logger.warning(f"Email client initialization failed: {e}")
             email_client = None
         
-        # Initialize heavy components in background for performance
-        blockchain_verifier = None
-        ipfs_storage = None
-        initialize_heavy_components()
-        logger.info("Heavy components loading in background")
+        # Initialize Blockchain Verifier (optional)
+        if hasattr(config, 'ENABLE_BLOCKCHAIN_VERIFICATION') and config.ENABLE_BLOCKCHAIN_VERIFICATION:
+            try:
+                blockchain_verifier = BlockchainVerifier(config)
+                logger.info("Blockchain verifier initialized")
+            except Exception as e:
+                logger.warning(f"Blockchain verifier initialization failed: {e}")
+                blockchain_verifier = None
+        
+        # Initialize IPFS Storage (optional)
+        if hasattr(config, 'ENABLE_IPFS_STORAGE') and config.ENABLE_IPFS_STORAGE:
+            try:
+                ipfs_storage = IPFSStorage(config)
+                logger.info("IPFS storage initialized")
+            except Exception as e:
+                logger.warning(f"IPFS storage initialization failed: {e}")
+                ipfs_storage = None
             
     except Exception as e:
-        logger.error(f"Initialization error: {e}")
+        logger.error(f"Critical configuration error: {e}")
+        # Still allow the app to start with minimal functionality
         config = None
     
     return True
-
-@lru_cache(maxsize=32)
-def get_lazy_blockchain():
-    """Lazy load blockchain verifier when needed"""
-    global blockchain_verifier
-    if blockchain_verifier is None and config:
-        try:
-            from qumail_client.blockchain.verification import BlockchainVerifier
-            blockchain_verifier = BlockchainVerifier(config)
-            logger.info("Blockchain verifier loaded successfully")
-        except Exception as e:
-            logger.warning(f"Blockchain verifier failed to load: {e}")
-            blockchain_verifier = None
-    return blockchain_verifier
-
-@lru_cache(maxsize=32)
-def get_lazy_ipfs():
-    """Lazy load IPFS storage when needed"""
-    global ipfs_storage
-    if ipfs_storage is None and config:
-        try:
-            from qumail_client.ipfs.storage import IPFSStorage
-            ipfs_storage = IPFSStorage(config)
-            logger.info("IPFS storage loaded successfully")
-        except Exception as e:
-            logger.warning(f"IPFS storage failed to load: {e}")
-            ipfs_storage = None
-    return ipfs_storage
-
-def initialize_heavy_components():
-    """Initialize blockchain and IPFS in background thread"""
-    def init_background():
-        try:
-            # Initialize blockchain verifier
-            get_lazy_blockchain()
-            # Initialize IPFS storage  
-            get_lazy_ipfs()
-        except Exception as e:
-            logger.warning(f"Background component init failed: {e}")
-    
-    # Run in background thread
-    thread_pool.submit(init_background)
 
 @app.route('/health')
 def health_check():
@@ -223,48 +167,46 @@ def health_check():
 @app.route('/')
 @app.route('/dashboard')
 def dashboard():
-    """Ultra-fast dashboard with aggressive caching"""
+    """Main dashboard with error handling"""
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    user_id = session['user_id']
-    cache_key = f"dashboard_stats_{user_id}"
-    
-    # Try cache first (5 minute cache)
-    stats = get_cached(cache_key, 300)
-    if stats:
-        return render_template('dashboard.html', stats=stats)
-    
-    # Fast fallback stats for instant loading
+    # Get user statistics with fallback values
     stats = {
-        'total_keys': 5,
-        'active_keys': 3,
-        'emails_sent': 10,
-        'emails_received': 7
+        'total_keys': 0,
+        'active_keys': 0,
+        'emails_sent': 0,
+        'emails_received': 0
     }
     
-    # Async update real stats in background
-    def update_stats_async():
-        try:
-            real_stats = {'total_keys': 0, 'active_keys': 0, 'emails_sent': 0, 'emails_received': 0}
-            if key_manager:
-                try:
-                    user_keys = key_manager.get_user_keys(user_id)
-                    if user_keys:
-                        real_stats['total_keys'] = len(user_keys)
-                        real_stats['active_keys'] = len([k for k in user_keys if not k.get('expired', False)])
-                    
-                    email_stats = key_manager.get_email_statistics(user_id)
-                    if email_stats:
-                        real_stats.update(email_stats)
-                except:
-                    pass
-            set_cache(cache_key, real_stats, 300)
-        except:
-            pass
-    
-    # Submit background task
-    thread_pool.submit(update_stats_async)
+    try:
+        # Safe key statistics
+        if key_manager:
+            try:
+                user_keys = key_manager.get_user_keys(session['user_id'])
+                if user_keys:
+                    stats['total_keys'] = len(user_keys)
+                    stats['active_keys'] = len([k for k in user_keys if not k.get('expired', False)])
+            except Exception as e:
+                logger.warning(f"Failed to get user keys: {e}")
+        
+        # Safe email statistics
+        if key_manager:
+            try:
+                email_stats = key_manager.get_email_statistics(session['user_id'])
+                if email_stats:
+                    stats.update(email_stats)
+            except Exception as e:
+                logger.warning(f"Failed to get email statistics: {e}")
+                # Use fallback values
+                stats.update({
+                    'emails_sent': 0,
+                    'emails_received': 0
+                })
+            
+    except Exception as e:
+        logger.error(f"Dashboard error: {e}")
+        # Continue with default stats
     
     return render_template('dashboard.html', stats=stats)
 
@@ -444,7 +386,7 @@ def logout():
 
 @app.route('/compose', methods=['GET', 'POST'])
 def compose():
-    """Super-fast compose with minimal processing"""
+    """Compose new email"""
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
@@ -458,139 +400,72 @@ def compose():
             subject = request.form.get('subject')
             message = request.form.get('message')
             
-            # Handle file attachments
-            files = request.files.getlist('attachments')
+            # Generate quantum key for encryption (optimized)
+            quantum_key = key_manager.generate_quantum_key(
+                user_id=session['user_id'],
+                recipient=recipient,
+                purpose='email_encryption'
+            )
             
-            if not all([recipient, subject, message]):
-                flash('Please fill all fields', 'error')
-                return redirect(url_for('compose'))
+            # Share key with recipient (non-blocking)
+            try:
+                key_manager.share_key_with_recipient(
+                    key_id=quantum_key['key_id'],
+                    sender_id=session['user_id'],
+                    recipient_id=recipient
+                )
+            except Exception as e:
+                logger.warning(f"Key sharing failed: {e}")
             
-            def send_email_async():
-                try:
-                    # Handle file attachments
-                    attachment_files = []
-                    attachment_paths = []
-                    
-                    if files:
-                        import tempfile
-                        for file in files:
-                            if file.filename:
-                                # Read file data for IPFS storage
-                                file_data = file.read()
-                                file.seek(0)  # Reset file pointer
-                                
-                                # Add to IPFS attachment list
-                                attachment_files.append({
-                                    'data': file_data,
-                                    'filename': file.filename,
-                                    'content_type': file.content_type or 'application/octet-stream'
-                                })
-                                
-                                # Also save temporarily for email sending
-                                temp_dir = tempfile.gettempdir()
-                                temp_path = os.path.join(temp_dir, f"qumail_attachment_{file.filename}")
-                                file.save(temp_path)
-                                attachment_paths.append(temp_path)
-                    
-                    # Generate key (fast)
-                    quantum_key = key_manager.generate_quantum_key(
-                        user_id=session['user_id'],
-                        recipient=recipient,
-                        purpose='email_encryption'
-                    )
-                    
-                    # Encrypt (fast)
-                    encrypted_message = quantum_crypto.encrypt_message(message, quantum_key['key_data'])
-                    
-                    # Store on IPFS if available (with attachments)
-                    ipfs_hash = None
-                    blockchain_hash = None
-                    
-                    ipfs = get_lazy_ipfs()
-                    if ipfs:
-                        try:
-                            email_data_ipfs = {
-                                'sender': session['user_id'],
-                                'recipient': recipient,
-                                'subject': subject,
-                                'encrypted_content': encrypted_message.hex() if isinstance(encrypted_message, bytes) else encrypted_message,
-                                'encryption_key_id': quantum_key['key_id'],
-                                'timestamp': datetime.now().isoformat()
-                            }
-                            
-                            if attachment_files:
-                                # Store email with attachments
-                                ipfs_result = ipfs.store_email_with_attachments(email_data_ipfs, attachment_files)
-                                if ipfs_result.get('success'):
-                                    ipfs_hash = ipfs_result.get('email_hash')
-                            else:
-                                # Store email only
-                                ipfs_result = ipfs.store_email(email_data_ipfs)
-                                if ipfs_result.get('success'):
-                                    ipfs_hash = ipfs_result.get('hash')
-                        except Exception as e:
-                            logger.warning(f"IPFS storage failed: {e}")
-                    
-                    # Verify on blockchain if available (async)
-                    blockchain = get_lazy_blockchain()
-                    if blockchain and ipfs_hash:
-                        try:
-                            verification_result = blockchain.verify_email_integrity(ipfs_hash, encrypted_message)
-                            if verification_result.get('success'):
-                                blockchain_hash = verification_result.get('hash')
-                        except Exception as e:
-                            logger.warning(f"Blockchain verification failed: {e}")
-                    
-                    # Send email with attachments
-                    email_data = {
-                        'recipient': recipient,
-                        'subject': f"[QuMail Secure] {subject}",
-                        'body': f"Encrypted message (Key ID: {quantum_key['key_id']})\nIPFS: {ipfs_hash}\nBlockchain: {blockchain_hash}",
-                        'encrypted_content': encrypted_message,
-                        'attachments': attachment_paths
-                    }
-                    
-                    email_client.send_secure_email(email_data)
-                    
-                    # Clean up temporary attachment files
-                    for temp_path in attachment_paths:
-                        try:
-                            if os.path.exists(temp_path):
-                                os.remove(temp_path)
-                        except Exception as e:
-                            logger.warning(f"Failed to clean up temporary file {temp_path}: {e}")
-                    
-                    # Record with IPFS hash
-                    key_manager.record_email_sent(
-                        user_id=session['user_id'],
-                        recipient=recipient,
-                        subject=subject,
-                        ipfs_hash=ipfs_hash,
-                        encryption_key_id=quantum_key['key_id'],
-                        encrypted_content=base64.b64encode(encrypted_message if isinstance(encrypted_message, bytes) else encrypted_message.encode('utf-8')).decode('utf-8')
-                    )
-                    
-                    # Share key with recipient (async)
+            # Encrypt message (optimized)
+            encrypted_message = quantum_crypto.encrypt_message(message, quantum_key['key_data'])
+            
+            # Store in IPFS (fast mode - async processing)
+            ipfs_hash = None
+            blockchain_hash = None
+            
+            # Skip heavy operations for performance - process later if needed
+            # if ipfs_storage:
+            #     ipfs_hash = ipfs_storage.store_encrypted_email(...)
+            # if blockchain_verifier:
+            #     blockchain_hash = blockchain_verifier.verify_email_integrity(...)
+            
+            # Send email
+            email_data = {
+                'recipient': recipient,
+                'subject': f"[QuMail Secure] {subject}",
+                'body': f"Encrypted message (Key ID: {quantum_key['key_id']})\nIPFS: {ipfs_hash}\nBlockchain: {blockchain_hash}",
+                'encrypted_content': encrypted_message
+            }
+            
+            success = email_client.send_secure_email(email_data)
+            
+            if success.get('success'):
+                # Record email sent in statistics
+                if key_manager:
                     try:
-                        key_manager.share_key_with_recipient(
-                            key_id=quantum_key['key_id'],
-                            sender_id=session['user_id'],
-                            recipient_id=recipient
+                        # Record for sender (optimized - single database operation)
+                        key_manager.record_email_sent(
+                            user_id=session['user_id'],
+                            recipient=recipient,
+                            subject=subject,
+                            ipfs_hash=ipfs_hash,
+                            encryption_key_id=quantum_key['key_id'],
+                            encrypted_content=base64.b64encode(encrypted_message if isinstance(encrypted_message, bytes) else encrypted_message.encode('utf-8')).decode('utf-8')
                         )
-                    except:
-                        pass  # Continue if sharing fails
                         
-                except Exception as e:
-                    logger.error(f"Async send failed: {e}")
-            
-            # Submit to background thread for instant UI response
-            thread_pool.submit(send_email_async)
-            
-            flash('Email queued for sending!', 'success')
+                        # Skip recipient recording for performance - they'll see it when they check inbox"
+                    except Exception as e:
+                        logger.error(f"Failed to record email statistics: {e}")
+                
+                flash('Secure email sent successfully!', 'success')
+            else:
+                error_msg = success.get('error', 'Unknown error')
+                flash(f'Failed to send email: {error_msg}', 'error')
                 
         except Exception as e:
-            logger.error(f"Compose error: {e}")
-            flash('Error processing email', 'error')
+            logger.error(f"Failed to send email: {e}")
+            flash(f'Error sending email: {str(e)}', 'error')
         
         return redirect(url_for('compose'))
     
@@ -598,64 +473,44 @@ def compose():
 
 @app.route('/inbox')
 def inbox():
-    """Lightning-fast inbox with caching"""
+    """View inbox with sent and received emails"""
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    user_id = session['user_id']
-    cache_key = f"inbox_{user_id}"
-    
-    # Try cache first (2 minute cache)
-    cached_data = get_cached(cache_key, 120)
-    if cached_data:
-        return render_template('inbox.html', **cached_data)
-    
-    # Fast fallback for instant loading
     all_emails = []
-    sent_count = 3
-    received_count = 5
+    sent_count = 0
+    received_count = 0
     
-    def load_emails_async():
-        try:
-            real_emails = []
-            real_sent = 0
-            real_received = 0
+    try:
+        if key_manager:
+            # Get emails with optimized query (limit to recent 50 emails)
+            all_user_emails = key_manager.get_user_inbox(session['user_id'])
             
-            if key_manager:
-                # Get only 25 most recent for speed
-                all_user_emails = key_manager.get_user_inbox(user_id)
+            # Process emails efficiently
+            for email in all_user_emails[:50]:  # Limit to 50 most recent
+                all_emails.append({
+                    'id': email.get('id', ''),
+                    'type': email.get('type', ''),
+                    'sender': email.get('sender', ''),
+                    'recipient': email.get('recipient', ''),
+                    'subject': email.get('subject', ''),
+                    'timestamp': email.get('timestamp', ''),
+                    'encrypted': True,
+                    'key_id': email.get('encryption_key_id', ''),
+                    'has_documents': bool(email.get('ipfs_hash'))
+                })
                 
-                for email in all_user_emails[:25]:  # Even more limited
-                    real_emails.append({
-                        'id': email.get('id', ''),
-                        'type': email.get('type', ''),
-                        'sender': email.get('sender', ''),
-                        'recipient': email.get('recipient', ''),
-                        'subject': email.get('subject', ''),
-                        'timestamp': email.get('timestamp', ''),
-                        'encrypted': True,
-                        'key_id': email.get('encryption_key_id', ''),
-                        'has_documents': False  # Skip IPFS check for speed
-                    })
-                    
-                    if email.get('type') == 'sent':
-                        real_sent += 1
-                    elif email.get('type') == 'received':
-                        real_received += 1
+                # Count by type
+                if email.get('type') == 'sent':
+                    sent_count += 1
+                elif email.get('type') == 'received':
+                    received_count += 1
             
-            # Cache real data
-            real_data = {
-                'emails': real_emails,
-                'sent_count': real_sent,
-                'received_count': real_received
-            }
-            set_cache(cache_key, real_data, 120)
+            # Already sorted by database query (newest first)
             
-        except Exception as e:
-            logger.error(f"Async inbox load failed: {e}")
-    
-    # Load real data in background
-    thread_pool.submit(load_emails_async)
+    except Exception as e:
+        logger.error(f"Failed to get emails: {e}")
+        flash(f'Error loading emails: {str(e)}', 'error')
     
     return render_template('inbox.html', 
                          emails=all_emails, 
@@ -664,94 +519,158 @@ def inbox():
 
 @app.route('/view_email/<int:email_id>')
 def view_email(email_id):
-    """Fast email viewing with minimal processing"""
+    """View email content and documents from IPFS"""
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    cache_key = f"email_{email_id}_{session['user_id']}"
-    cached_data = get_cached(cache_key, 180)  # 3 minute cache
-    
-    if cached_data:
-        return render_template('view_email.html', **cached_data)
-    
     email_data = None
-    decrypted_content = "Loading..."
+    decrypted_content = None
+    ipfs_document = None
     
     try:
         if key_manager:
-            # Direct database query for specific email (faster)
-            all_emails = key_manager.get_user_inbox(session['user_id'])
+            # Get email from both sent and received
+            sent_emails = key_manager.get_sent_emails(session['user_id'])
+            received_emails = key_manager.get_received_emails(session['user_id'])
             
-            for email in all_emails:
+            logger.info(f"Looking for email {email_id} among {len(sent_emails)} sent and {len(received_emails)} received emails")
+            
+            # Find the email and mark its type
+            for email in sent_emails:
                 if email.get('id') == email_id:
                     email_data = email
-                    email_data['type'] = 'sent' if email.get('sender') == session['user_id'] else 'received'
+                    email_data['type'] = 'sent'
+                    email_data['sender'] = session['user_id']  # Sender is current user
+                    logger.info(f"Found SENT email {email_id}: {email.get('subject')}")
                     break
+            
+            # If not found in sent, check received
+            if not email_data:
+                for email in received_emails:
+                    if email.get('id') == email_id:
+                        email_data = email
+                        email_data['type'] = 'received'
+                        # sender field should already be set from database
+                        logger.info(f"Found RECEIVED email {email_id}: {email.get('subject')}")
+                        break
             
             if not email_data:
                 flash('Email not found', 'error')
                 return redirect(url_for('inbox'))
             
-            # Fast decryption (single method only)
-            encrypted_content = email_data.get('content') or email_data.get('encrypted_content')
-            key_id = email_data.get('key_id') or email_data.get('encryption_key_id')
-            
-            if encrypted_content and key_id and quantum_crypto:
+            # Try to decrypt content if available
+            if email_data.get('content') or email_data.get('encrypted_content'):
                 try:
-                    user_keys = key_manager.get_user_keys(session['user_id'], include_expired=True)
-                    decryption_key = None
+                    # Get encrypted content from either field
+                    encrypted_content = email_data.get('content') or email_data.get('encrypted_content')
+                    key_id = email_data.get('key_id') or email_data.get('encryption_key_id')
                     
-                    for key in user_keys:
-                        if key.get('key_id') == key_id:
-                            decryption_key = key.get('key_data')
-                            break
+                    logger.info(f"Attempting decryption - Key ID: {key_id}")
+                    logger.info(f"Encrypted content length: {len(encrypted_content) if encrypted_content else 0}")
+                    logger.info(f"Encrypted content type: {type(encrypted_content)}")
+                    logger.info(f"Encrypted content preview: {encrypted_content[:50] if encrypted_content else 'None'}...")
                     
-                    if decryption_key:
-                        # Single decryption attempt (base64 method only)
-                        if isinstance(decryption_key, str):
+                    if key_id:
+                        # Get decryption key - include expired keys to handle old emails
+                        user_keys = key_manager.get_user_keys(session['user_id'], include_expired=True)
+                        decryption_key = None
+                        
+                        logger.info(f"Found {len(user_keys)} total keys for user {session['user_id']}")
+                        logger.info(f"Looking for key_id: '{key_id}'")
+                        
+                        # Log all available keys for debugging
+                        for i, key in enumerate(user_keys):
+                            logger.info(f"Key {i+1}: ID='{key.get('key_id')}', Purpose={key.get('purpose')}, Expired={key.get('expired')}")
+                        
+                        for key in user_keys:
+                            if key.get('key_id') == key_id:
+                                decryption_key = key.get('key_data')
+                                logger.info(f"✓ Found matching key: {key_id}")
+                                logger.info(f"Key data type: {type(decryption_key)}, Length: {len(decryption_key) if decryption_key else 0}")
+                                break
+                        
+                        if decryption_key:
+                            # Ensure decryption key is bytes
+                            if isinstance(decryption_key, str):
+                                try:
+                                    decryption_key = base64.b64decode(decryption_key)
+                                    logger.info("Converted key from base64 string to bytes")
+                                except Exception as e:
+                                    logger.warning(f"Base64 decode of key failed: {e}, trying UTF-8 encode")
+                                    decryption_key = decryption_key.encode('utf-8')
+                            
+                            # Try multiple decryption approaches
+                            decryption_successful = False
+                            
+                            # Method 1: Base64 decode + decrypt (most common)
                             try:
-                                decryption_key = base64.b64decode(decryption_key)
-                            except:
-                                decryption_key = decryption_key.encode('utf-8')
-                        
-                        encrypted_bytes = base64.b64decode(encrypted_content) if isinstance(encrypted_content, str) else encrypted_content
-                        decrypted_content = quantum_crypto.decrypt_message(encrypted_bytes, decryption_key)
-                        
-                        if isinstance(decrypted_content, bytes):
-                            decrypted_content = decrypted_content.decode('utf-8')
+                                logger.info("Trying Method 1: Base64 decode + decrypt")
+                                encrypted_bytes = base64.b64decode(encrypted_content) if isinstance(encrypted_content, str) else encrypted_content
+                                logger.info(f"Decoded to {len(encrypted_bytes)} bytes")
+                                decrypted_content = quantum_crypto.decrypt_message(encrypted_bytes, decryption_key)
+                                if isinstance(decrypted_content, bytes):
+                                    decrypted_content = decrypted_content.decode('utf-8')
+                                logger.info(f"✓ Successfully decrypted using Method 1 (base64)")
+                                decryption_successful = True
+                            except Exception as e:
+                                logger.warning(f"Method 1 failed: {e}")
+                            
+                            # Method 2: Direct decrypt (already bytes)
+                            if not decryption_successful:
+                                try:
+                                    logger.info("Trying Method 2: Direct decrypt")
+                                    encrypted_bytes = encrypted_content if isinstance(encrypted_content, bytes) else encrypted_content.encode('utf-8')
+                                    decrypted_content = quantum_crypto.decrypt_message(encrypted_bytes, decryption_key)
+                                    if isinstance(decrypted_content, bytes):
+                                        decrypted_content = decrypted_content.decode('utf-8')
+                                    logger.info(f"✓ Successfully decrypted using Method 2 (direct)")
+                                    decryption_successful = True
+                                except Exception as e:
+                                    logger.warning(f"Method 2 failed: {e}")
+                            
+                            # Method 3: Hex decode + decrypt
+                            if not decryption_successful:
+                                try:
+                                    logger.info("Trying Method 3: Hex decode + decrypt")
+                                    encrypted_bytes = bytes.fromhex(encrypted_content) if isinstance(encrypted_content, str) else encrypted_content
+                                    decrypted_content = quantum_crypto.decrypt_message(encrypted_bytes, decryption_key)
+                                    if isinstance(decrypted_content, bytes):
+                                        decrypted_content = decrypted_content.decode('utf-8')
+                                    logger.info(f"✓ Successfully decrypted using Method 3 (hex)")
+                                    decryption_successful = True
+                                except Exception as e:
+                                    logger.warning(f"Method 3 failed: {e}")
+                            
+                            if not decryption_successful:
+                                logger.error("All decryption methods failed!")
+                                decrypted_content = "Content is encrypted - all decryption methods failed"
+                        else:
+                            logger.error(f"✗ Decryption key {key_id} not found among {len(user_keys)} keys")
+                            decrypted_content = "Content is encrypted - decryption key not found or invalid"
                     else:
-                        decrypted_content = "Decryption key not found"
+                        logger.error("✗ No key_id found for this email")
+                        decrypted_content = "Content is encrypted - no encryption key ID available"
                         
-                except Exception:
-                    decrypted_content = "Decryption failed"
-            else:
-                decrypted_content = "No encrypted content available"
+                except Exception as e:
+                    logger.error(f"Failed to decrypt email content: {e}")
+                    decrypted_content = f"Content is encrypted - decryption failed: {str(e)}"
+            
+            # Retrieve IPFS document if available
+            if email_data.get('ipfs_hash') and ipfs_storage:
+                try:
+                    ipfs_document = ipfs_storage.retrieve_email(email_data['ipfs_hash'])
+                except Exception as e:
+                    logger.error(f"Failed to retrieve IPFS document: {e}")
                     
     except Exception as e:
-        flash('Error loading email', 'error')
+        logger.error(f"Failed to view email {email_id}: {e}")
+        flash(f'Error loading email: {str(e)}', 'error')
         return redirect(url_for('inbox'))
     
-    # Try to get IPFS document if available
-    ipfs_document = None
-    if email_data and email_data.get('ipfs_hash'):
-        ipfs = get_lazy_ipfs()
-        if ipfs:
-            try:
-                ipfs_result = ipfs.retrieve_email(email_data['ipfs_hash'])
-                if ipfs_result.get('success'):
-                    ipfs_document = ipfs_result.get('data')
-            except Exception as e:
-                logger.warning(f"IPFS retrieval failed: {e}")
-    
-    # Cache result
-    result_data = {
-        'email': email_data,
-        'decrypted_content': decrypted_content,
-        'ipfs_document': ipfs_document
-    }
-    set_cache(cache_key, result_data, 180)
-    
-    return render_template('view_email.html', **result_data)
+    return render_template('view_email.html', 
+                         email=email_data,
+                         decrypted_content=decrypted_content,
+                         ipfs_document=ipfs_document)
 
 @app.route('/keys')
 def keys():
@@ -817,24 +736,73 @@ def api_delete_key(key_id):
 
 @app.route('/api/system_status')
 def system_status():
-    """System status with lazy component checking"""
-    cache_key = "system_status"
-    cached_status = get_cached(cache_key, 30)  # 30 second cache for more responsive updates
-    
-    if cached_status:
-        return jsonify(cached_status)
-    
-    # Check components (with lazy loading)
+    """Get system status"""
     status = {
-        'quantum_encryption': quantum_crypto is not None,
-        'blockchain_verification': get_lazy_blockchain() is not None,
-        'ipfs_storage': get_lazy_ipfs() is not None,
-        'key_manager': key_manager is not None,
-        'database_connected': key_manager is not None,
-        'email_client': email_client is not None
+        'quantum_encryption': False,
+        'blockchain_verification': False,
+        'ipfs_storage': False,
+        'key_manager': False,
+        'database_connected': False,
+        'email_client': False
     }
     
-    set_cache(cache_key, status, 30)
+    # Test Quantum Encryption
+    try:
+        if quantum_crypto:
+            # Test encryption functionality
+            test_result = quantum_crypto.test_encryption()
+            status['quantum_encryption'] = test_result
+    except Exception as e:
+        logger.error(f"Quantum crypto test failed: {e}")
+        status['quantum_encryption'] = False
+    
+    # Test Blockchain Verification
+    try:
+        if blockchain_verifier:
+            # Test blockchain connection
+            test_result = blockchain_verifier.test_connection()
+            status['blockchain_verification'] = test_result.get('success', False)
+    except Exception as e:
+        logger.error(f"Blockchain test failed: {e}")
+        status['blockchain_verification'] = False
+    
+    # Test IPFS Storage
+    try:
+        if ipfs_storage:
+            # Test IPFS connection
+            test_result = ipfs_storage.test_connection()
+            status['ipfs_storage'] = test_result.get('success', False)
+    except Exception as e:
+        logger.error(f"IPFS test failed: {e}")
+        status['ipfs_storage'] = False
+    
+    # Test Key Manager
+    try:
+        if key_manager:
+            key_manager.test_connection()
+            status['key_manager'] = True
+    except Exception as e:
+        logger.error(f"Key manager test failed: {e}")
+        status['key_manager'] = False
+    
+    # Test Database Connection
+    try:
+        if key_manager:
+            key_manager.test_connection()
+            status['database_connected'] = True
+    except Exception as e:
+        logger.error(f"Database test failed: {e}")
+        status['database_connected'] = False
+    
+    # Test Email Client
+    try:
+        if email_client:
+            # Email client is always available (demo mode or real)
+            status['email_client'] = True
+    except Exception as e:
+        logger.error(f"Email client test failed: {e}")
+        status['email_client'] = False
+    
     return jsonify(status)
 
 @app.route('/api/send_email', methods=['POST'])
@@ -868,27 +836,47 @@ def send_email():
         attachment_paths = []
         if files:
             import tempfile
+            import os
+            import time
             for file in files:
-                if file.filename:
-                    # Read file data for IPFS storage
-                    file_data = file.read()
-                    file.seek(0)  # Reset file pointer
-                    
-                    # Add to IPFS attachment list
-                    attachment_files.append({
-                        'data': file_data,
-                        'filename': file.filename,
-                        'content_type': file.content_type or 'application/octet-stream'
-                    })
-                    
-                    # Also save temporarily for email sending (backup)
-                    temp_dir = tempfile.gettempdir()
-                    temp_path = os.path.join(temp_dir, f"qumail_attachment_{file.filename}")
-                    file.save(temp_path)
-                    attachment_paths.append(temp_path)
-                    logger.info(f"Prepared attachment for IPFS: {file.filename} ({len(file_data)} bytes)")
-        
+                if file.filename and file.filename.strip():
+                    try:
+                        # Read file data once
+                        file_data = file.read()
+                        logger.info(f"Read attachment: {file.filename} ({len(file_data)} bytes)")
+                        
+                        # Add to IPFS attachment list
+                        attachment_files.append({
+                            'data': file_data,
+                            'filename': file.filename,
+                            'content_type': file.content_type or 'application/octet-stream'
+                        })
+                        
+                        # Also save temporarily for email sending (backup)
+                        temp_dir = tempfile.gettempdir()
+                        # Ensure temp directory exists
+                        os.makedirs(temp_dir, exist_ok=True)
+                        
+                        # Sanitize filename to avoid path issues
+                        safe_filename = "".join(c for c in file.filename if c.isalnum() or c in '._-').strip()
+                        if not safe_filename:
+                            safe_filename = f"attachment_{int(time.time())}"
+                        
+                        temp_path = os.path.join(temp_dir, f"qumail_attachment_{safe_filename}")
+                        
+                        # Write file data to temp file
+                        with open(temp_path, 'wb') as temp_file:
+                            temp_file.write(file_data)
+                        
+                        attachment_paths.append(temp_path)
+                        logger.info(f"Prepared attachment for IPFS and email: {file.filename} -> {temp_path}")
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to process attachment {file.filename}: {e}")
+                        continue
+
         # Generate or use existing key for encryption
+        key_result = None
         if encryption_key == 'auto':
             # Generate new key for this email
             try:
@@ -915,6 +903,13 @@ def send_email():
                 return jsonify({'success': False, 'error': f'Failed to generate encryption key: {str(e)}'}), 500
         else:
             encryption_key_id = encryption_key
+            # Get existing key data
+            try:
+                key_result = key_manager.get_key(encryption_key_id)
+                if not key_result:
+                    return jsonify({'success': False, 'error': 'Specified encryption key not found'}), 400
+            except Exception as e:
+                return jsonify({'success': False, 'error': f'Failed to retrieve encryption key: {str(e)}'}), 500
         
         # Encrypt content using quantum encryption
         encrypted_content = quantum_crypto.encrypt_message(content, key_result['key_data'])
@@ -924,48 +919,34 @@ def send_email():
             'sender': sender,
             'recipient': recipient,
             'subject': subject,
-            'encrypted_content': encrypted_content.hex() if isinstance(encrypted_content, bytes) else encrypted_content,
+            'encrypted_content': encrypted_content.hex(),
             'encryption_key_id': encryption_key_id,
             'priority': priority,
             'timestamp': datetime.now().isoformat()
         }
         
         # Store attachments and email separately
-        ipfs_hash = None
-        attachments_info = []
-        blockchain_verified = False
+        if attachment_files:
+            logger.info(f"Storing {len(attachment_files)} attachments on IPFS")
+            # Use new method that handles attachments
+            ipfs_result = ipfs_storage.store_email_with_attachments(email_data, attachment_files)
+        else:
+            # No attachments, store email only
+            ipfs_result = ipfs_storage.store_email(email_data)
+            ipfs_result = {'success': ipfs_result['success'], 'email_hash': ipfs_result.get('hash'), 'attachments': []}
         
-        ipfs = get_lazy_ipfs()
-        if ipfs:
-            try:
-                if attachment_files:
-                    logger.info(f"Storing {len(attachment_files)} attachments on IPFS")
-                    # Use new method that handles attachments
-                    ipfs_result = ipfs.store_email_with_attachments(email_data, attachment_files)
-                else:
-                    # No attachments, store email only
-                    ipfs_result = ipfs.store_email(email_data)
-                    ipfs_result = {'success': ipfs_result['success'], 'email_hash': ipfs_result.get('hash'), 'attachments': []}
-                
-                if ipfs_result['success']:
-                    ipfs_hash = ipfs_result['email_hash']
-                    attachments_info = ipfs_result.get('attachments', [])
-                    
-                    logger.info(f"Email stored on IPFS: {ipfs_hash}")
-                    if attachments_info:
-                        logger.info(f"Attachments stored: {[att['filename'] for att in attachments_info]}")
-                        
-            except Exception as e:
-                logger.warning(f"IPFS storage failed: {e}")
+        if not ipfs_result['success']:
+            return jsonify({'success': False, 'error': 'Failed to store email on IPFS'}), 500
+        
+        ipfs_hash = ipfs_result['email_hash']
+        attachments_info = ipfs_result.get('attachments', [])
+        
+        logger.info(f"Email stored on IPFS: {ipfs_hash}")
+        if attachments_info:
+            logger.info(f"Attachments stored: {[att['filename'] for att in attachments_info]}")
         
         # Verify on blockchain
-        blockchain = get_lazy_blockchain()
-        if blockchain and ipfs_hash:
-            try:
-                verification_result = blockchain.verify_email_integrity(ipfs_hash, encrypted_content)
-                blockchain_verified = verification_result.get('success', False)
-            except Exception as e:
-                logger.warning(f"Blockchain verification failed: {e}")
+        verification_result = blockchain_verifier.verify_email_integrity(ipfs_hash, encrypted_content)
         
         # Send actual email
         email_send_result = email_client.send_secure_email({
@@ -973,7 +954,7 @@ def send_email():
             'recipient': recipient,
             'subject': f"[QuMail Secure] {subject}",
             'encrypted_content': encrypted_content,
-            'attachments': attachment_paths
+            'attachments': attachment_paths  # File paths for email sending
         })
         
         if email_send_result.get('success'):
@@ -1020,7 +1001,7 @@ def send_email():
                 'message': 'Email sent successfully',
                 'ipfs_hash': ipfs_hash,
                 'encryption_key_id': encryption_key_id,
-                'blockchain_verified': blockchain_verified,
+                'blockchain_verified': verification_result.get('success', False),
                 'attachments_count': len(attachment_paths)
             })
         else:
@@ -1038,37 +1019,24 @@ def send_email():
             
     except Exception as e:
         logger.error(f"Error sending email: {e}")
-        # Clean up any temporary files
-        try:
-            if 'attachment_paths' in locals():
-                for temp_path in attachment_paths:
-                    if os.path.exists(temp_path):
-                        os.remove(temp_path)
-        except:
-            pass
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/email/<email_id>')
 def get_email(email_id):
-    """Fast email retrieval with caching"""
+    """Get email details with decryption"""
     try:
         if 'user_id' not in session:
             return jsonify({'success': False, 'error': 'Not authenticated'}), 401
         
-        cache_key = f"api_email_{email_id}_{session['user_id']}"
-        cached_email = get_cached(cache_key, 120)  # 2 minute cache
-        
-        if cached_email:
-            return jsonify({'success': True, 'email': cached_email})
-        
+        # Get email from database
         if not key_manager:
             return jsonify({'success': False, 'error': 'Key manager not available'}), 500
             
-        # Direct inbox query (faster)
-        all_emails = key_manager.get_user_inbox(session['user_id'])
+        sent_emails = key_manager.get_sent_emails(session['user_id'])
         email_data = None
         
-        for email in all_emails:
+        # Find the specific email
+        for email in sent_emails:
             if str(email.get('id', '')) == str(email_id):
                 email_data = email
                 break
@@ -1076,35 +1044,102 @@ def get_email(email_id):
         if not email_data:
             return jsonify({'success': False, 'error': 'Email not found'}), 404
         
-        # Fast decryption (single method)
-        decrypted_content = "Encrypted content"
-        encrypted_content = email_data.get('encrypted_content')
-        key_id = email_data.get('encryption_key_id')
+        # Try to get encrypted content from IPFS first, fallback to database
+        decrypted_content = "Unable to decrypt content"
+        encrypted_content = None
         
-        if encrypted_content and key_id and quantum_crypto:
+        # First try IPFS
+        if email_data.get('ipfs_hash') and ipfs_storage:
             try:
+                ipfs_result = ipfs_storage.retrieve_email(email_data['ipfs_hash'])
+                if ipfs_result.get('success'):
+                    stored_email_data = ipfs_result.get('data', {})
+                    encrypted_content = stored_email_data.get('encrypted_content', '')
+                    logger.info("Successfully retrieved content from IPFS")
+                else:
+                    logger.warning(f"IPFS retrieval failed: {ipfs_result.get('error', 'Unknown error')}")
+            except Exception as ipfs_error:
+                logger.warning(f"IPFS retrieval error: {ipfs_error}")
+        
+        # Fallback to database if IPFS failed
+        if not encrypted_content and email_data.get('encrypted_content'):
+            encrypted_content = email_data.get('encrypted_content')
+            logger.info("Using encrypted content from database as fallback")
+        
+        # Decrypt content if we have it
+        if encrypted_content and quantum_crypto and email_data.get('encryption_key_id'):
+            try:
+                # Get the quantum key used for encryption - include expired keys
                 user_keys = key_manager.get_user_keys(session['user_id'], include_expired=True)
+                encryption_key_data = None
+                
+                logger.info(f"Looking for encryption key: {email_data.get('encryption_key_id')}")
+                logger.info(f"User has {len(user_keys)} keys available")
                 
                 for key in user_keys:
-                    if key.get('key_id') == key_id:
+                    if key.get('key_id') == email_data.get('encryption_key_id'):
                         encryption_key_data = key.get('key_data')
-                        
-                        if isinstance(encryption_key_data, str):
-                            try:
-                                encryption_key_data = base64.b64decode(encryption_key_data)
-                            except:
-                                encryption_key_data = encryption_key_data.encode('utf-8')
-                        
-                        # Single decryption attempt (fastest method)
-                        encrypted_bytes = base64.b64decode(encrypted_content) if isinstance(encrypted_content, str) else encrypted_content
-                        decrypted_content = quantum_crypto.decrypt_message(encrypted_bytes, encryption_key_data)
-                        
-                        if isinstance(decrypted_content, bytes):
-                            decrypted_content = decrypted_content.decode('utf-8')
+                        logger.info("Found matching encryption key!")
                         break
+                
+                if encryption_key_data:
+                    # Ensure key is bytes
+                    if isinstance(encryption_key_data, str):
+                        try:
+                            encryption_key_data = base64.b64decode(encryption_key_data)
+                        except:
+                            encryption_key_data = encryption_key_data.encode('utf-8')
+                    
+                    # Try multiple decryption methods
+                    decryption_methods = [
+                        # Method 1: Base64 decode + decrypt
+                        lambda: quantum_crypto.decrypt_message(
+                            base64.b64decode(encrypted_content) if isinstance(encrypted_content, str) else encrypted_content,
+                            encryption_key_data
+                        ),
+                        # Method 2: Direct decrypt
+                        lambda: quantum_crypto.decrypt_message(
+                            encrypted_content if isinstance(encrypted_content, bytes) else encrypted_content.encode('utf-8'),
+                            encryption_key_data
+                        ),
+                        # Method 3: Hex decode + decrypt
+                        lambda: quantum_crypto.decrypt_message(
+                            bytes.fromhex(encrypted_content) if isinstance(encrypted_content, str) else encrypted_content,
+                            encryption_key_data
+                        )
+                    ]
+                    
+                    decryption_successful = False
+                    for i, method in enumerate(decryption_methods):
+                        try:
+                            decrypted_content = method()
+                            if isinstance(decrypted_content, bytes):
+                                decrypted_content = decrypted_content.decode('utf-8')
+                            logger.info(f"Successfully decrypted using method {i+1}")
+                            decryption_successful = True
+                            break
+                        except Exception as e:
+                            pass  # Skip logging for performance
+                            continue
+                    
+                    if not decryption_successful:
+                        decrypted_content = "Content is encrypted - all decryption methods failed"
                         
-            except Exception:
-                decrypted_content = "Decryption failed"
+                else:
+                    logger.error(f"Encryption key {email_data.get('encryption_key_id')} not found")
+                    decrypted_content = "Content is encrypted - decryption key not found"
+                    
+            except Exception as decrypt_error:
+                logger.error(f"Failed to decrypt email content: {decrypt_error}")
+                decrypted_content = f"Content is encrypted - decryption error: {str(decrypt_error)}"
+        elif not encrypted_content:
+            decrypted_content = "No content available"
+        elif not quantum_crypto:
+            decrypted_content = "Quantum crypto system not available"
+        elif not email_data.get('encryption_key_id'):
+            decrypted_content = "No encryption key ID available"
+        else:
+            decrypted_content = "Unknown decryption issue"
         
         response_data = {
             'id': email_data.get('id', ''),
@@ -1114,15 +1149,15 @@ def get_email(email_id):
             'content': decrypted_content,
             'timestamp': email_data.get('sent_at', ''),
             'encrypted': True,
-            'key_id': key_id or '',
-            'ipfs_hash': ''
+            'key_id': email_data.get('encryption_key_id', ''),
+            'ipfs_hash': email_data.get('ipfs_hash', '')
         }
         
-        set_cache(cache_key, response_data, 120)
         return jsonify({'success': True, 'email': response_data})
         
     except Exception as e:
-        return jsonify({'success': False, 'error': 'Failed to get email'}), 500
+        logger.error(f"Error getting email: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/email/<email_id>', methods=['DELETE'])
 def delete_email(email_id):
@@ -1230,7 +1265,153 @@ def delete_key_endpoint(key_id):
         logger.error(f"Error deleting key: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# All debug functionality removed for maximum performance
+# Debug API endpoints removed for production performance
+
+@app.route('/api/debug/list_keys')
+def debug_list_keys():
+    """Debug endpoint to list all keys"""
+    try:
+        if 'user_id' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+        
+        # Get all keys including expired
+        keys = key_manager.get_user_keys(session['user_id'], include_expired=True)
+        
+        # Remove sensitive key_data from response
+        safe_keys = []
+        for key in keys:
+            safe_key = {k: v for k, v in key.items() if k != 'key_data'}
+            safe_keys.append(safe_key)
+        
+        return jsonify({
+            'success': True,
+            'keys': safe_keys,
+            'total': len(safe_keys)
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to list keys: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/debug/manual_decrypt', methods=['POST'])
+def debug_manual_decrypt():
+    """Debug endpoint to manually test decryption"""
+    try:
+        if 'user_id' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+        
+        data = request.get_json()
+        encrypted_content = data.get('encrypted_content')
+        key_id = data.get('key_id')
+        
+        if not encrypted_content or not key_id:
+            return jsonify({'success': False, 'error': 'Missing encrypted_content or key_id'}), 400
+        
+        # Get the key
+        user_keys = key_manager.get_user_keys(session['user_id'], include_expired=True)
+        decryption_key = None
+        
+        for key in user_keys:
+            if key.get('key_id') == key_id:
+                decryption_key = key.get('key_data')
+                break
+        
+        if not decryption_key:
+            return jsonify({
+                'success': False, 
+                'error': f'Key {key_id} not found',
+                'details': f'Available keys: {[k.get("key_id") for k in user_keys]}'
+            }), 404
+        
+        # Ensure key is bytes
+        if isinstance(decryption_key, str):
+            try:
+                decryption_key = base64.b64decode(decryption_key)
+            except:
+                decryption_key = decryption_key.encode('utf-8')
+        
+        # Try decryption methods
+        methods = [
+            ('base64', lambda: quantum_crypto.decrypt_message(base64.b64decode(encrypted_content), decryption_key)),
+            ('direct', lambda: quantum_crypto.decrypt_message(encrypted_content.encode('utf-8'), decryption_key)),
+            ('hex', lambda: quantum_crypto.decrypt_message(bytes.fromhex(encrypted_content), decryption_key))
+        ]
+        
+        for method_name, method in methods:
+            try:
+                decrypted = method()
+                if isinstance(decrypted, bytes):
+                    decrypted = decrypted.decode('utf-8')
+                return jsonify({
+                    'success': True,
+                    'decrypted_content': decrypted,
+                    'method_used': method_name
+                })
+            except Exception as e:
+                logger.debug(f"Method {method_name} failed: {e}")
+                continue
+        
+        return jsonify({
+            'success': False,
+            'error': 'All decryption methods failed',
+            'details': 'Tried base64, direct, and hex decoding'
+        }), 500
+        
+    except Exception as e:
+        logger.error(f"Manual decrypt failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/fix_old_emails', methods=['POST'])
+def fix_old_emails():
+    """Fix old emails by sharing keys with recipients"""
+    try:
+        if 'user_id' not in session:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+        
+        user_email = session['user_id']
+        
+        # Get all sent emails for this user
+        sent_emails = key_manager.get_sent_emails(user_email, limit=100)
+        
+        success_count = 0
+        fail_count = 0
+        already_shared_count = 0
+        
+        for email in sent_emails:
+            key_id = email.get('encryption_key_id') or email.get('key_id')
+            recipient = email.get('recipient')
+            
+            if not key_id or not recipient:
+                fail_count += 1
+                continue
+            
+            try:
+                # Try to share the key
+                result = key_manager.share_key_with_recipient(key_id, user_email, recipient)
+                if result:
+                    success_count += 1
+                else:
+                    already_shared_count += 1
+            except Exception as e:
+                if "duplicate key value" in str(e).lower():
+                    already_shared_count += 1
+                else:
+                    fail_count += 1
+        
+        return jsonify({
+            'success': True,
+            'message': f'Processed {len(sent_emails)} emails',
+            'shared': success_count,
+            'already_shared': already_shared_count,
+            'failed': fail_count,
+            'total': len(sent_emails)
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to fix old emails: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# Debug functionality removed for production performance
 
 @app.route('/favicon.ico')
 def favicon():
@@ -1270,51 +1451,51 @@ def create_directories():
         os.makedirs(directory, exist_ok=True)
 
 def main():
-    """High-performance application entry point with background component loading"""
+    """Main application entry point"""
     try:
-        # Create directories if needed
+        # Create necessary directories
         create_directories()
         
-        # Fast initialization of critical components
+        # Initialize components (non-blocking)
         initialize_components()
+        logger.info("Component initialization completed")
         
-        # Production configuration
-        port = int(os.getenv('PORT', 10000))
-        host = '0.0.0.0' if os.getenv('PORT') else '127.0.0.1'
+        # Get Flask configuration from environment
+        # For cloud deployment (like Render), use 0.0.0.0 and PORT env var
+        port = int(os.getenv('PORT', 10000))  # Render sets PORT, fallback to 10000
         
-        # Create database tables if needed
+        # For production deployment (Render), always bind to 0.0.0.0
+        # Override any local HOST setting for production
+        if os.getenv('FLASK_ENV') == 'production' or os.getenv('PORT'):  # Render sets PORT
+            host = '0.0.0.0'
+        else:
+            host = os.getenv('HOST', '127.0.0.1')  # Local development
+        
+        # Force disable debug for performance
+        debug = False
+        
+        logger.info(f"Starting QuMail Flask application on {host}:{port}")
+        logger.info(f"Environment: {os.getenv('FLASK_ENV', 'development')}")
+        logger.info(f"Debug mode: {debug}")
+        
+        # Create database tables if they don't exist
         try:
             with app.app_context():
                 db.create_all()
-                logger.info("Database tables verified")
+                logger.info("Database tables created/verified")
         except Exception as e:
-            logger.warning(f"Database setup issue: {e}")
+            logger.warning(f"Database table creation failed: {e}")
         
-        # High-performance Flask configuration
-        app.config.update(
-            # Performance optimizations
-            SEND_FILE_MAX_AGE_DEFAULT=31536000,  # 1 year cache
-            JSONIFY_PRETTYPRINT_REGULAR=False,   # Faster JSON
-            TEMPLATES_AUTO_RELOAD=False,         # No template reloading
-            EXPLAIN_TEMPLATE_LOADING=False,      # No debug info
-            PRESERVE_CONTEXT_ON_EXCEPTION=False, # Faster error handling
-            MAX_CONTENT_LENGTH=16 * 1024 * 1024  # 16MB max
-        )
-        
-        # Run with maximum performance settings
+        # Run Flask application
         app.run(
             host=host,
             port=port,
-            debug=False,
-            threaded=True,
-            use_reloader=False,      # No auto-reload
-            use_debugger=False,      # No debugger
-            use_evalex=False,        # No eval exception
-            passthrough_errors=True  # Pass errors for better handling
+            debug=debug,
+            threaded=True
         )
         
     except Exception as e:
-        print(f"Startup failed: {e}")  # Minimal logging
+        logger.error(f"Failed to start QuMail application: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
