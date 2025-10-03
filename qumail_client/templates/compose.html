@@ -1,0 +1,777 @@
+{% extends "base.html" %}
+
+{% block title %}Compose Email - QuMail{% endblock %}
+
+{% block content %}
+<style>
+    /* Color Palette Variables */
+    :root {
+        --primary-green: #6B6B35;
+        --primary-blue: #737773;
+        --neutral-gray: #A6A6A6;
+        --neutral-light: #CECECE;
+        --accent-gold: #C59059;
+        --text-dark: #333334;
+        --glass-bg: rgba(167, 167, 167, 0.1);
+        --glass-border: rgba(167, 167, 167, 0.2);
+    }
+
+    /* Layout and Background */
+    body {
+        background: linear-gradient(135deg, var(--neutral-light) 0%, #f8f8f8 100%);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        overflow-x: hidden;
+    }
+
+    .compose-container {
+        display: flex;
+        min-height: 100vh;
+        position: relative;
+    }
+
+    .sidebar {
+        width: 280px;
+        background: var(--glass-bg);
+        backdrop-filter: blur(20px);
+        border-right: 1px solid var(--glass-border);
+        position: fixed;
+        height: 100vh;
+        left: 0;
+        top: 0;
+        z-index: 1000;
+        padding: 2rem 0;
+    }
+
+    .sidebar-header {
+        padding: 0 2rem 2rem;
+        border-bottom: 1px solid var(--glass-border);
+        margin-bottom: 2rem;
+    }
+
+    .sidebar-logo {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: var(--primary-green);
+        text-decoration: none;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .nav-item {
+        margin-bottom: 0.5rem;
+    }
+
+    .nav-link {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem 1.5rem;
+        color: var(--text-dark);
+        text-decoration: none;
+        border-radius: 16px;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        margin: 0 1rem;
+    }
+
+    .nav-link:hover {
+        background: rgba(107, 107, 53, 0.1);
+        border: 1px solid var(--glass-border);
+        transform: translateX(8px);
+        color: var(--primary-green);
+    }
+
+    .nav-link.active {
+        background: linear-gradient(135deg, var(--primary-green), var(--accent-gold));
+        color: white;
+    }
+
+    .main-content {
+        flex: 1;
+        margin-left: 280px;
+        padding: 2rem;
+        min-height: 100vh;
+    }
+
+    /* Compose Form Styling */
+    .compose-header {
+        background: var(--glass-bg);
+        backdrop-filter: blur(15px);
+        padding: 2rem;
+        border-radius: 24px;
+        border: 1px solid var(--glass-border);
+        margin-bottom: 2rem;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    }
+
+    .compose-title {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: var(--text-dark);
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .compose-form {
+        background: var(--glass-bg);
+        backdrop-filter: blur(15px);
+        border: 1px solid var(--glass-border);
+        border-radius: 20px;
+        padding: 2.5rem;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Form Fields */
+    .form-group {
+        margin-bottom: 2rem;
+        position: relative;
+    }
+
+    .form-label {
+        color: var(--text-dark);
+        font-weight: 600;
+        margin-bottom: 0.8rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.95rem;
+    }
+
+    .required-star {
+        color: var(--accent-gold);
+        font-weight: bold;
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 1.2rem 1.5rem;
+        background: rgba(255, 255, 255, 0.7);
+        border: 2px solid var(--glass-border);
+        border-radius: 16px;
+        color: var(--text-dark);
+        font-size: 1rem;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        backdrop-filter: blur(10px);
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: var(--primary-green);
+        box-shadow: 0 0 0 3px rgba(107, 107, 53, 0.1);
+        background: rgba(255, 255, 255, 0.9);
+        transform: translateY(-2px);
+    }
+
+    .form-input:read-only {
+        background: rgba(167, 167, 167, 0.1);
+        color: var(--neutral-gray);
+        cursor: not-allowed;
+    }
+
+    .form-textarea {
+        min-height: 200px;
+        resize: vertical;
+        font-family: inherit;
+    }
+
+    .form-select {
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236B6B35' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+        background-position: right 1rem center;
+        background-repeat: no-repeat;
+        background-size: 1.5em 1.5em;
+        padding-right: 3rem;
+    }
+
+    /* File Upload */
+    .file-upload-area {
+        border: 2px dashed var(--glass-border);
+        border-radius: 16px;
+        padding: 2rem;
+        text-align: center;
+        background: rgba(255, 255, 255, 0.3);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .file-upload-area:hover {
+        border-color: var(--primary-green);
+        background: rgba(107, 107, 53, 0.05);
+    }
+
+    .file-upload-area.dragover {
+        border-color: var(--accent-gold);
+        background: rgba(197, 144, 89, 0.1);
+        transform: scale(1.02);
+    }
+
+    .file-input {
+        position: absolute;
+        opacity: 0;
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
+    }
+
+    .file-upload-content {
+        pointer-events: none;
+    }
+
+    .file-upload-icon {
+        font-size: 3rem;
+        color: var(--primary-green);
+        margin-bottom: 1rem;
+    }
+
+    .file-list {
+        margin-top: 1rem;
+    }
+
+    .file-item {
+        display: flex;
+        justify-content: between;
+        align-items: center;
+        padding: 0.8rem 1.2rem;
+        background: rgba(255, 255, 255, 0.5);
+        border-radius: 12px;
+        margin-bottom: 0.5rem;
+        border: 1px solid var(--glass-border);
+    }
+
+    .file-info {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        flex: 1;
+    }
+
+    .file-name {
+        font-weight: 500;
+        color: var(--text-dark);
+    }
+
+    .file-size {
+        font-size: 0.85rem;
+        color: var(--neutral-gray);
+    }
+
+    /* Action Buttons */
+    .action-buttons {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 2.5rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .btn-glass {
+        background: var(--glass-bg);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--glass-border);
+        border-radius: 16px;
+        padding: 1rem 2rem;
+        color: var(--text-dark);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.75rem;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        font-weight: 600;
+        position: relative;
+        overflow: hidden;
+        cursor: pointer;
+        border: none;
+        font-size: 1rem;
+    }
+
+    .btn-glass::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+        transition: left 0.5s;
+    }
+
+    .btn-glass:hover::before {
+        left: 100%;
+    }
+
+    .btn-glass:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+        border-color: var(--primary-green);
+        color: var(--primary-green);
+        text-decoration: none;
+    }
+
+    .btn-primary-custom {
+        background: linear-gradient(135deg, var(--primary-green), var(--accent-gold));
+        border: none;
+        color: white;
+        box-shadow: 0 8px 25px rgba(107, 107, 53, 0.3);
+    }
+
+    .btn-primary-custom:hover {
+        color: white;
+        box-shadow: 0 15px 35px rgba(107, 107, 53, 0.4);
+        transform: translateY(-3px) scale(1.02);
+    }
+
+    .btn-secondary-custom {
+        background: rgba(115, 119, 115, 0.1);
+        border-color: var(--primary-blue);
+        color: var(--primary-blue);
+    }
+
+    .btn-secondary-custom:hover {
+        background: var(--primary-blue);
+        color: white;
+    }
+
+    /* Form Grid */
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+    }
+
+    .form-grid-full {
+        grid-column: 1 / -1;
+    }
+
+    /* Help Text */
+    .form-help {
+        font-size: 0.85rem;
+        color: var(--neutral-gray);
+        margin-top: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Animations */
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .compose-form {
+        animation: slideIn 0.6s ease-out;
+    }
+
+    /* Mobile Responsive */
+    @media (max-width: 1024px) {
+        .form-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .sidebar {
+            transform: translateX(-100%);
+        }
+        
+        .main-content {
+            margin-left: 0;
+        }
+        
+        .action-buttons {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        
+        .btn-glass {
+            justify-content: center;
+        }
+    }
+
+    /* Hide default elements */
+    nav.navbar { display: none; }
+    main.container { padding: 0; margin: 0; max-width: 100%; }
+</style>
+
+<div class="compose-container">
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('dashboard') }}" class="sidebar-logo">
+                <i class="fas fa-shield-alt"></i>
+                QuMail
+            </a>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <div class="nav-item">
+                <a href="{{ url_for('dashboard') }}" class="nav-link">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Dashboard</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('compose') }}" class="nav-link active">
+                    <i class="fas fa-edit"></i>
+                    <span>Compose</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('inbox') }}" class="nav-link">
+                    <i class="fas fa-inbox"></i>
+                    <span>Inbox</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('keys') }}" class="nav-link">
+                    <i class="fas fa-key"></i>
+                    <span>Keys</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('debug_keys_page') }}" class="nav-link">
+                    <i class="fas fa-bug"></i>
+                    <span>Debug</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('settings') }}" class="nav-link">
+                    <i class="fas fa-cog"></i>
+                    <span>Settings</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Header -->
+        <div class="compose-header">
+            <h1 class="compose-title">
+                <i class="fas fa-edit"></i>
+                Compose Secure Message
+            </h1>
+        </div>
+
+        <!-- Compose Form -->
+        <div class="compose-form">
+            <form id="composeForm" enctype="multipart/form-data">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="sender" class="form-label">
+                            <i class="fas fa-user"></i>
+                            From
+                        </label>
+                        <input type="email" class="form-input" id="sender" name="sender" 
+                               value="{{ session.get('user_id', '') }}" readonly>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="recipient" class="form-label">
+                            <i class="fas fa-envelope"></i>
+                            To
+                            <span class="required-star">*</span>
+                        </label>
+                        <input type="email" class="form-input" id="recipient" name="recipient" 
+                               value="{{ reply_to }}" placeholder="recipient@example.com" required>
+                    </div>
+                </div>
+                
+                <div class="form-group form-grid-full">
+                    <label for="subject" class="form-label">
+                        <i class="fas fa-tag"></i>
+                        Subject
+                        <span class="required-star">*</span>
+                    </label>
+                    <input type="text" class="form-input" id="subject" name="subject" 
+                           value="{{ reply_subject }}" placeholder="Enter subject line" required>
+                </div>
+                
+                <div class="form-group form-grid-full">
+                    <label for="content" class="form-label">
+                        <i class="fas fa-comment-alt"></i>
+                        Message
+                        <span class="required-star">*</span>
+                    </label>
+                    <textarea class="form-input form-textarea" id="content" name="content" 
+                              placeholder="Compose your secure message..." required></textarea>
+                </div>
+                
+                <!-- File Attachments -->
+                <div class="form-group form-grid-full">
+                    <label class="form-label">
+                        <i class="fas fa-paperclip"></i>
+                        Secure Attachments
+                    </label>
+                    <div class="file-upload-area" id="fileUploadArea">
+                        <input type="file" class="file-input" id="attachments" name="attachments" multiple>
+                        <div class="file-upload-content">
+                            <i class="fas fa-cloud-upload-alt file-upload-icon"></i>
+                            <p><strong>Drop files here</strong> or click to browse</p>
+                            <p class="form-help">
+                                <i class="fas fa-shield-alt"></i>
+                                Files will be encrypted automatically
+                            </p>
+                        </div>
+                    </div>
+                    <div id="attachments-list" class="file-list"></div>
+                </div>
+                
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="encryption_key" class="form-label">
+                            <i class="fas fa-key"></i>
+                            Encryption Key
+                        </label>
+                        <select class="form-input form-select" id="encryption_key" name="encryption_key">
+                            <option value="auto">Auto-generate new key</option>
+                            <option value="shared">Use shared key</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="priority" class="form-label">
+                            <i class="fas fa-flag"></i>
+                            Priority Level
+                        </label>
+                        <select class="form-input form-select" id="priority" name="priority">
+                            <option value="normal">Normal</option>
+                            <option value="high">High Priority</option>
+                            <option value="urgent">Urgent</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="action-buttons">
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                        <button type="submit" class="btn-glass btn-primary-custom">
+                            <i class="fas fa-paper-plane"></i>
+                            <span>Send Secure Email</span>
+                        </button>
+                        <button type="button" class="btn-glass btn-secondary-custom" onclick="saveDraft()">
+                            <i class="fas fa-save"></i>
+                            <span>Save Draft</span>
+                        </button>
+                    </div>
+                    <a href="{{ url_for('dashboard') }}" class="btn-glass">
+                        <i class="fas fa-times"></i>
+                        <span>Cancel</span>
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Handle file selection display
+document.getElementById('attachments').addEventListener('change', function(e) {
+    const files = e.target.files;
+    const attachmentsList = document.getElementById('attachments-list');
+    attachmentsList.innerHTML = '';
+    
+    if (files.length > 0) {
+        const listGroup = document.createElement('div');
+        listGroup.className = 'list-group';
+        
+        Array.from(files).forEach((file, index) => {
+            const item = document.createElement('div');
+            item.className = 'list-group-item d-flex justify-content-between align-items-center';
+            item.innerHTML = `
+                <div>
+                    <i class="fas fa-file"></i>
+                    <strong>${file.name}</strong>
+                    <small class="text-muted">(${(file.size / 1024).toFixed(1)} KB)</small>
+                </div>
+                <span class="badge bg-success">Ready to encrypt</span>
+            `;
+            listGroup.appendChild(item);
+        });
+        
+        attachmentsList.appendChild(listGroup);
+    }
+});
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Enhanced file upload with drag & drop
+    const fileUploadArea = document.getElementById('fileUploadArea');
+    const fileInput = document.getElementById('attachments');
+    const attachmentsList = document.getElementById('attachments-list');
+    
+    // Drag and drop functionality
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        fileUploadArea.addEventListener(eventName, preventDefaults, false);
+    });
+    
+    ['dragenter', 'dragover'].forEach(eventName => {
+        fileUploadArea.addEventListener(eventName, highlight, false);
+    });
+    
+    ['dragleave', 'drop'].forEach(eventName => {
+        fileUploadArea.addEventListener(eventName, unhighlight, false);
+    });
+    
+    fileUploadArea.addEventListener('drop', handleDrop, false);
+    
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    
+    function highlight(e) {
+        fileUploadArea.classList.add('dragover');
+    }
+    
+    function unhighlight(e) {
+        fileUploadArea.classList.remove('dragover');
+    }
+    
+    function handleDrop(e) {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        fileInput.files = files;
+        handleFiles(files);
+    }
+    
+    // Handle file selection
+    fileInput.addEventListener('change', function(e) {
+        handleFiles(e.target.files);
+    });
+    
+    function handleFiles(files) {
+        attachmentsList.innerHTML = '';
+        
+        if (files.length > 0) {
+            Array.from(files).forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                
+                const fileInfo = document.createElement('div');
+                fileInfo.className = 'file-info';
+                
+                const fileIcon = getFileIcon(file.type);
+                const fileSize = formatFileSize(file.size);
+                
+                fileInfo.innerHTML = `
+                    <i class="fas ${fileIcon}" style="color: var(--primary-green);"></i>
+                    <div>
+                        <div class="file-name">${file.name}</div>
+                        <div class="file-size">${fileSize}</div>
+                    </div>
+                `;
+                
+                fileItem.appendChild(fileInfo);
+                attachmentsList.appendChild(fileItem);
+            });
+        }
+    }
+    
+    function getFileIcon(fileType) {
+        if (fileType.includes('image')) return 'fa-image';
+        if (fileType.includes('pdf')) return 'fa-file-pdf';
+        if (fileType.includes('word')) return 'fa-file-word';
+        if (fileType.includes('excel')) return 'fa-file-excel';
+        if (fileType.includes('video')) return 'fa-file-video';
+        if (fileType.includes('audio')) return 'fa-file-audio';
+        return 'fa-file';
+    }
+    
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+    
+    // Form submission with enhanced feedback
+    const composeForm = document.getElementById('composeForm');
+    composeForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Sending...</span>';
+        submitBtn.disabled = true;
+        
+        const formData = new FormData(this);
+        
+        fetch('/api/send_email', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('success', 'Email sent successfully!');
+                setTimeout(() => window.location.href = '/dashboard', 2000);
+            } else {
+                showNotification('error', 'Failed to send email: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('error', 'An error occurred while sending the email.');
+        })
+        .finally(() => {
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+        });
+    });
+});
+
+function saveDraft() {
+    const btn = event.target;
+    const originalText = btn.innerHTML;
+    
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Saving...</span>';
+    btn.disabled = true;
+    
+    setTimeout(() => {
+        showNotification('success', 'Draft saved successfully!');
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }, 1500);
+}
+
+function showNotification(type, message) {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed; top: 2rem; right: 2rem; z-index: 10000;
+        background: ${type === 'success' ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #ef4444, #dc2626)'};
+        color: white; padding: 1rem 1.5rem; border-radius: 12px;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15); max-width: 400px;
+        animation: slideIn 0.3s ease-out;
+    `;
+    
+    notification.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+            <span>${message}</span>
+        </div>
+    `;
+    
+    document.body.appendChild(notification);
+    setTimeout(() => notification.remove(), 4000);
+}
+
+// Add notification animations
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+`;
+document.head.appendChild(style);
+</script>
+{% endblock %}

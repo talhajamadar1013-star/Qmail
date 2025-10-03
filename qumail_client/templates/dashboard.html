@@ -1,0 +1,808 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - QuMail{% endblock %}
+
+{% block content %}
+<style>
+    /* Color Palette Variables */
+    :root {
+        --primary-green: #6B6B35;
+        --primary-blue: #737773;
+        --neutral-gray: #A6A6A6;
+        --neutral-light: #CECECE;
+        --accent-gold: #C59059;
+        --text-dark: #333334;
+        --glass-bg: rgba(167, 167, 167, 0.1);
+        --glass-border: rgba(167, 167, 167, 0.2);
+    }
+
+    /* Dashboard Layout */
+    body {
+        background: linear-gradient(135deg, var(--neutral-light) 0%, #f8f8f8 100%);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        overflow-x: hidden;
+    }
+
+    .dashboard-container {
+        display: flex;
+        min-height: 100vh;
+        position: relative;
+    }
+
+    /* Left Sidebar */
+    .sidebar {
+        width: 280px;
+        background: var(--glass-bg);
+        backdrop-filter: blur(20px);
+        border-right: 1px solid var(--glass-border);
+        position: fixed;
+        height: 100vh;
+        left: 0;
+        top: 0;
+        z-index: 1000;
+        padding: 2rem 0;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .sidebar-header {
+        padding: 0 2rem 2rem;
+        border-bottom: 1px solid var(--glass-border);
+        margin-bottom: 2rem;
+    }
+
+    .sidebar-logo {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: var(--primary-green);
+        text-decoration: none;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .sidebar-nav {
+        padding: 0 1rem;
+    }
+
+    .nav-item {
+        margin-bottom: 0.5rem;
+    }
+
+    .nav-link {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem 1.5rem;
+        color: var(--text-dark);
+        text-decoration: none;
+        border-radius: 16px;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        background: transparent;
+        border: 1px solid transparent;
+    }
+
+    .nav-link:hover {
+        background: rgba(107, 107, 53, 0.1);
+        border-color: var(--glass-border);
+        transform: translateX(8px);
+        color: var(--primary-green);
+        box-shadow: 0 8px 25px rgba(107, 107, 53, 0.15);
+    }
+
+    .nav-link.active {
+        background: linear-gradient(135deg, var(--primary-green), var(--accent-gold));
+        color: white;
+        box-shadow: 0 8px 25px rgba(107, 107, 53, 0.3);
+    }
+
+    .nav-link::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+        transition: left 0.5s;
+    }
+
+    .nav-link:hover::before {
+        left: 100%;
+    }
+
+    .nav-icon {
+        font-size: 1.2rem;
+        width: 24px;
+        text-align: center;
+    }
+
+    /* Main Content */
+    .main-content {
+        flex: 1;
+        margin-left: 280px;
+        padding: 2rem;
+        min-height: 100vh;
+    }
+
+    /* Header */
+    .dashboard-header {
+        display: flex;
+        justify-content: between;
+        align-items: center;
+        margin-bottom: 2rem;
+        background: var(--glass-bg);
+        backdrop-filter: blur(15px);
+        padding: 2rem;
+        border-radius: 24px;
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    }
+
+    .dashboard-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: var(--text-dark);
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .status-badge {
+        background: linear-gradient(135deg, #22c55e, #16a34a);
+        color: white;
+        padding: 0.5rem 1.5rem;
+        border-radius: 50px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        box-shadow: 0 4px 15px rgba(34, 197, 94, 0.3);
+        animation: pulse-glow 2s infinite;
+        position: relative;
+        left: 40%;
+    }
+
+    @keyframes pulse-glow {
+
+        0%,
+        100% {
+            box-shadow: 0 4px 15px rgba(34, 197, 94, 0.3);
+        }
+
+        50% {
+            box-shadow: 0 4px 25px rgba(34, 197, 94, 0.5);
+        }
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    .stat-card {
+        background: var(--glass-bg);
+        backdrop-filter: blur(15px);
+        border: 1px solid var(--glass-border);
+        border-radius: 20px;
+        padding: 2rem;
+        text-align: center;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .stat-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--primary-green), var(--accent-gold));
+        border-radius: 20px 20px 0 0;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-8px);
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        border-color: var(--primary-green);
+    }
+
+    .stat-icon {
+        font-size: 3rem;
+        color: var(--primary-green);
+        margin-bottom: 1rem;
+        display: block;
+        transition: all 0.3s ease;
+    }
+
+    .stat-card:hover .stat-icon {
+        transform: scale(1.1);
+        color: var(--accent-gold);
+    }
+
+    .stat-number {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: var(--text-dark);
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+
+    .stat-label {
+        color: var(--neutral-gray);
+        font-weight: 500;
+        margin: 0;
+    }
+
+    /* Content Grid */
+    .content-grid {
+        display: grid;
+        grid-template-columns: 1fr 400px;
+        gap: 2rem;
+    }
+
+    /* Glass Cards */
+    .glass-card {
+        background: var(--glass-bg);
+        backdrop-filter: blur(15px);
+        border: 1px solid var(--glass-border);
+        border-radius: 20px;
+        padding: 2rem;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    }
+
+    .card-header-custom {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 2rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--glass-border);
+    }
+
+    .card-header-custom h3 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--text-dark);
+        margin: 0;
+    }
+
+    .card-header-custom i {
+        color: var(--primary-green);
+        font-size: 1.3rem;
+    }
+
+    /* Interactive Buttons */
+    .btn-glass {
+        background: var(--glass-bg);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--glass-border);
+        border-radius: 12px;
+        padding: 1rem 1.5rem;
+        color: var(--text-dark);
+        text-decoration: none;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        font-weight: 500;
+        position: relative;
+        overflow: hidden;
+        margin-bottom: 1rem;
+    }
+
+    .btn-glass::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+        transition: left 0.5s;
+    }
+
+    .btn-glass:hover::before {
+        left: 100%;
+    }
+
+    .btn-glass:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+        border-color: var(--primary-green);
+        color: var(--primary-green);
+    }
+
+    .btn-primary-custom {
+        background: linear-gradient(135deg, var(--primary-green), var(--accent-gold));
+        border: none;
+        color: white;
+    }
+
+    .btn-primary-custom:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 30px rgba(107, 107, 53, 0.3);
+        color: white;
+    }
+
+    /* System Status */
+    .status-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+
+    .status-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.5);
+        border-radius: 12px;
+        border: 1px solid var(--glass-border);
+    }
+
+    .status-label {
+        font-weight: 600;
+        color: var(--text-dark);
+    }
+
+    .status-badge-custom {
+        padding: 0.4rem 1rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .status-online {
+        background: #22c55e;
+        color: white;
+    }
+
+    .status-offline {
+        background: #ef4444;
+        color: white;
+    }
+
+    .status-warning {
+        background: #f59e0b;
+        color: white;
+    }
+
+    /* Loading States */
+    .loading-spinner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        padding: 2rem;
+    }
+
+    .spinner {
+        width: 24px;
+        height: 24px;
+        border: 3px solid var(--neutral-light);
+        border-top: 3px solid var(--primary-green);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+        .content-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .sidebar {
+            transform: translateX(-100%);
+        }
+
+        .main-content {
+            margin-left: 0;
+        }
+
+        .stats-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Hide default navbar for dashboard */
+    nav.navbar {
+        display: none;
+    }
+
+    main.container {
+        padding: 0;
+        margin: 0;
+        max-width: 100%;
+    }
+</style>
+
+<div class="dashboard-container">
+    <!-- Left Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('dashboard') }}" class="sidebar-logo">
+                <i class="fas fa-shield-alt"></i>
+                QuMail
+            </a>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-item">
+                <a href="{{ url_for('dashboard') }}" class="nav-link active">
+                    <i class="fas fa-tachometer-alt nav-icon"></i>
+                    <span>Dashboard</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('compose') }}" class="nav-link">
+                    <i class="fas fa-edit nav-icon"></i>
+                    <span>Compose</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('inbox') }}" class="nav-link">
+                    <i class="fas fa-inbox nav-icon"></i>
+                    <span>Inbox</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('keys') }}" class="nav-link">
+                    <i class="fas fa-key nav-icon"></i>
+                    <span>Keys</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('debug_keys_page') }}" class="nav-link">
+                    <i class="fas fa-bug nav-icon"></i>
+                    <span>Debug</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('settings') }}" class="nav-link">
+                    <i class="fas fa-cog nav-icon"></i>
+                    <span>Settings</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Header -->
+        <div class="dashboard-header">
+            <h1 class="dashboard-title">
+                <i class="fas fa-tachometer-alt"></i>
+                Quantum Control Center
+            </h1>
+            <div class="status-badge">
+                <i class="fas fa-circle"></i>
+                System Online
+            </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <i class="fas fa-key stat-icon"></i>
+                <div class="stat-number">{{ stats.total_keys }}</div>
+                <p class="stat-label">Total Keys</p>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-check-circle stat-icon"></i>
+                <div class="stat-number">{{ stats.active_keys }}</div>
+                <p class="stat-label">Active Keys</p>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-paper-plane stat-icon"></i>
+                <div class="stat-number">{{ stats.emails_sent }}</div>
+                <p class="stat-label">Emails Sent</p>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-inbox stat-icon"></i>
+                <div class="stat-number">{{ stats.emails_received }}</div>
+                <p class="stat-label">Emails Received</p>
+            </div>
+        </div>
+
+        <!-- Content Grid -->
+        <div class="content-grid">
+            <!-- System Status -->
+            <div class="glass-card">
+                <div class="card-header-custom">
+                    <i class="fas fa-info-circle"></i>
+                    <h3>System Status</h3>
+                </div>
+                <div id="system-status">
+                    <div class="loading-spinner">
+                        <div class="spinner"></div>
+                        <span>Checking system status...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="glass-card">
+                <div class="card-header-custom">
+                    <i class="fas fa-rocket"></i>
+                    <h3>Quick Actions</h3>
+                </div>
+                <div class="quick-actions">
+                    <a href="{{ url_for('compose') }}" class="btn-glass btn-primary-custom">
+                        <i class="fas fa-edit"></i>
+                        <span>Compose Email</span>
+                    </a>
+                    <button class="btn-glass" onclick="generateKey()">
+                        <i class="fas fa-key"></i>
+                        <span>Generate Key</span>
+                    </button>
+                    <a href="{{ url_for('keys') }}" class="btn-glass">
+                        <i class="fas fa-list"></i>
+                        <span>View All Keys</span>
+                    </a>
+                    <a href="{{ url_for('settings') }}" class="btn-glass">
+                        <i class="fas fa-cog"></i>
+                        <span>Settings</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function loadSystemStatus() {
+        fetch('/api/system_status')
+            .then(response => response.json())
+            .then(data => {
+                const statusHtml = `
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span class="status-label">Key Manager</span>
+                        <span class="status-badge-custom ${data.key_manager ? 'status-online' : 'status-offline'}">
+                            ${data.key_manager ? 'Online' : 'Offline'}
+                        </span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Database</span>
+                        <span class="status-badge-custom ${data.database_connected ? 'status-online' : 'status-offline'}">
+                            ${data.database_connected ? 'Connected' : 'Disconnected'}
+                        </span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Quantum Crypto</span>
+                        <span class="status-badge-custom ${data.quantum_encryption ? 'status-online' : 'status-offline'}">
+                            ${data.quantum_encryption ? 'Ready' : 'Error'}
+                        </span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Blockchain</span>
+                        <span class="status-badge-custom ${data.blockchain_verification ? 'status-online' : 'status-warning'}">
+                            ${data.blockchain_verification ? 'Connected' : 'Disabled'}
+                        </span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">IPFS Storage</span>
+                        <span class="status-badge-custom ${data.ipfs_storage ? 'status-online' : 'status-warning'}">
+                            ${data.ipfs_storage ? 'Connected' : 'Disabled'}
+                        </span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Email Client</span>
+                        <span class="status-badge-custom ${data.email_client ? 'status-online' : 'status-offline'}">
+                            ${data.email_client ? 'Ready' : 'Error'}
+                        </span>
+                    </div>
+                </div>
+                <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--glass-border); text-align: center;">
+                    <small style="color: var(--neutral-gray);">
+                        <i class="fas fa-clock"></i>
+                        Last updated: ${new Date(data.timestamp).toLocaleString()}
+                    </small>
+                </div>
+            `;
+                document.getElementById('system-status').innerHTML = statusHtml;
+            })
+            .catch(error => {
+                document.getElementById('system-status').innerHTML =
+                    '<div style="padding: 2rem; text-align: center; color: #ef4444;"><i class="fas fa-exclamation-triangle"></i> Failed to load system status</div>';
+            });
+    }
+
+    function generateKey() {
+        // Add loading state to button
+        const button = event.target;
+        const originalContent = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Generating...</span>';
+        button.disabled = true;
+
+        fetch('/api/generate_key', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                recipient: 'dashboard_generated',
+                purpose: 'quick_action'
+            })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Show success notification
+                    showNotification('success', `Key generated successfully! Key ID: ${data.key_id}, Length: ${data.key_length} bytes`);
+                    // Reload page after short delay
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    showNotification('error', 'Failed to generate key: ' + data.error);
+                }
+            })
+            .catch(error => {
+                showNotification('error', 'Error generating key: ' + error);
+            })
+            .finally(() => {
+                // Restore button state
+                button.innerHTML = originalContent;
+                button.disabled = false;
+            });
+    }
+
+    function showNotification(type, message) {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+        position: fixed;
+        top: 2rem;
+        right: 2rem;
+        background: ${type === 'success' ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #ef4444, #dc2626)'};
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        z-index: 10000;
+        max-width: 400px;
+        animation: slideIn 0.3s ease-out;
+        backdrop-filter: blur(10px);
+    `;
+
+        notification.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+            <span>${message}</span>
+        </div>
+    `;
+
+        document.body.appendChild(notification);
+
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease-in forwards';
+            setTimeout(() => notification.remove(), 300);
+        }, 5000);
+    }
+
+    // Add CSS animations for notifications
+    const style = document.createElement('style');
+    style.textContent = `
+    @keyframes slideIn {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slideOut {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+    }
+`;
+    document.head.appendChild(style);
+
+    // Enhanced sidebar interactions
+    document.addEventListener('DOMContentLoaded', function () {
+        // Load system status
+        loadSystemStatus();
+
+        // Add hover effects to sidebar items
+        const navLinks = document.querySelectorAll('.nav-link');
+        navLinks.forEach(link => {
+            link.addEventListener('mouseenter', function () {
+                this.style.transform = 'translateX(8px)';
+            });
+
+            link.addEventListener('mouseleave', function () {
+                if (!this.classList.contains('active')) {
+                    this.style.transform = 'translateX(0)';
+                }
+            });
+        });
+
+        // Add interactive effects to stat cards
+        const statCards = document.querySelectorAll('.stat-card');
+        statCards.forEach(card => {
+            card.addEventListener('mouseenter', function () {
+                this.style.transform = 'translateY(-8px) scale(1.02)';
+            });
+
+            card.addEventListener('mouseleave', function () {
+                this.style.transform = 'translateY(0) scale(1)';
+            });
+        });
+
+        // Add click ripple effect to glass buttons
+        const glassButtons = document.querySelectorAll('.btn-glass');
+        glassButtons.forEach(button => {
+            button.addEventListener('click', function (e) {
+                const ripple = document.createElement('div');
+                const rect = this.getBoundingClientRect();
+                const size = Math.max(rect.width, rect.height);
+                const x = e.clientX - rect.left - size / 2;
+                const y = e.clientY - rect.top - size / 2;
+
+                ripple.style.cssText = `
+                position: absolute;
+                width: ${size}px;
+                height: ${size}px;
+                left: ${x}px;
+                top: ${y}px;
+                background: rgba(255, 255, 255, 0.3);
+                border-radius: 50%;
+                transform: scale(0);
+                animation: ripple 0.6s ease-out;
+                pointer-events: none;
+            `;
+
+                this.style.position = 'relative';
+                this.appendChild(ripple);
+
+                setTimeout(() => ripple.remove(), 600);
+            });
+        });
+    });
+
+    // Add ripple animation
+    const rippleStyle = document.createElement('style');
+    rippleStyle.textContent = `
+    @keyframes ripple {
+        to {
+            transform: scale(2);
+            opacity: 0;
+        }
+    }
+`;
+    document.head.appendChild(rippleStyle);
+
+    // Refresh system status every 30 seconds
+    setInterval(loadSystemStatus, 30000);
+</script>
+{% endblock %}

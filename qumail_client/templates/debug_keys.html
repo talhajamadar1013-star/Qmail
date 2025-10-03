@@ -1,0 +1,607 @@
+{% extends "base.html" %}
+
+{% block title %}Debug - Keys & Encryption - QuMail{% endblock %}
+
+{% block content %}
+<style>
+    /* Reuse the same color palette and design system */
+    :root {
+        --primary-green: #6B6B35;
+        --primary-blue: #737773;
+        --neutral-gray: #A6A6A6;
+        --neutral-light: #CECECE;
+        --accent-gold: #C59059;
+        --text-dark: #333334;
+        --glass-bg: rgba(167, 167, 167, 0.1);
+        --glass-border: rgba(167, 167, 167, 0.2);
+    }
+
+    body {
+        background: linear-gradient(135deg, var(--neutral-light) 0%, #f8f8f8 100%);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    .debug-container {
+        display: flex;
+        min-height: 100vh;
+    }
+
+    .sidebar {
+        width: 280px;
+        background: var(--glass-bg);
+        backdrop-filter: blur(20px);
+        border-right: 1px solid var(--glass-border);
+        position: fixed;
+        height: 100vh;
+        left: 0;
+        top: 0;
+        z-index: 1000;
+        padding: 2rem 0;
+    }
+
+    .sidebar-header {
+        padding: 0 2rem 2rem;
+        border-bottom: 1px solid var(--glass-border);
+        margin-bottom: 2rem;
+    }
+
+    .sidebar-logo {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: var(--primary-green);
+        text-decoration: none;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .nav-item {
+        margin-bottom: 0.5rem;
+    }
+
+    .nav-link {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem 1.5rem;
+        color: var(--text-dark);
+        text-decoration: none;
+        border-radius: 16px;
+        transition: all 0.3s ease;
+        margin: 0 1rem;
+    }
+
+    .nav-link:hover {
+        background: rgba(107, 107, 53, 0.1);
+        transform: translateX(8px);
+        color: var(--primary-green);
+    }
+
+    .nav-link.active {
+        background: linear-gradient(135deg, var(--primary-green), var(--accent-gold));
+        color: white;
+    }
+
+    .main-content {
+        flex: 1;
+        margin-left: 280px;
+        padding: 2rem;
+    }
+
+    .debug-header {
+        background: var(--glass-bg);
+        backdrop-filter: blur(15px);
+        padding: 2rem;
+        border-radius: 24px;
+        border: 1px solid var(--glass-border);
+        margin-bottom: 2rem;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    }
+
+    .debug-title {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: var(--text-dark);
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .debug-icon {
+        color: #ef4444;
+        filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.3));
+    }
+
+    .debug-tools {
+        display: grid;
+        gap: 2rem;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    }
+
+    .debug-card {
+        background: var(--glass-bg);
+        backdrop-filter: blur(15px);
+        border: 1px solid var(--glass-border);
+        border-radius: 20px;
+        padding: 2rem;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+    }
+
+    .debug-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.15);
+        border-color: var(--primary-green);
+    }
+
+    .debug-card-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .debug-card-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: white;
+        background: linear-gradient(135deg, var(--primary-green), var(--accent-gold));
+    }
+
+    .debug-card-title {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: var(--text-dark);
+        margin: 0;
+    }
+
+    .debug-card-description {
+        color: var(--neutral-gray);
+        margin-bottom: 1.5rem;
+        line-height: 1.5;
+    }
+
+    .btn-glass {
+        background: var(--glass-bg);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--glass-border);
+        border-radius: 12px;
+        padding: 0.8rem 1.5rem;
+        color: var(--text-dark);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.3s ease;
+        font-weight: 500;
+        cursor: pointer;
+        font-size: 0.9rem;
+    }
+
+    .btn-glass:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+        border-color: var(--primary-green);
+        color: var(--primary-green);
+        text-decoration: none;
+    }
+
+    .btn-primary-custom {
+        background: linear-gradient(135deg, var(--primary-green), var(--accent-gold));
+        border: none;
+        color: white;
+    }
+
+    .btn-primary-custom:hover {
+        color: white;
+        box-shadow: 0 8px 20px rgba(107, 107, 53, 0.3);
+    }
+
+    .btn-warning-custom {
+        background: linear-gradient(135deg, #f59e0b, var(--accent-gold));
+        border: none;
+        color: white;
+    }
+
+    .btn-warning-custom:hover {
+        color: white;
+        box-shadow: 0 8px 20px rgba(245, 158, 11, 0.3);
+    }
+
+    .btn-info-custom {
+        background: linear-gradient(135deg, var(--primary-blue), #0ea5e9);
+        border: none;
+        color: white;
+    }
+
+    .btn-info-custom:hover {
+        color: white;
+        box-shadow: 0 8px 20px rgba(14, 165, 233, 0.3);
+    }
+
+    .result-area {
+        margin-top: 1.5rem;
+        min-height: 60px;
+        background: rgba(255, 255, 255, 0.6);
+        border: 1px solid var(--glass-border);
+        border-radius: 12px;
+        padding: 1rem;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.85rem;
+        color: var(--text-dark);
+    }
+
+    .result-success {
+        border-left: 4px solid #22c55e;
+        background: rgba(34, 197, 94, 0.05);
+    }
+
+    .result-error {
+        border-left: 4px solid #ef4444;
+        background: rgba(239, 68, 68, 0.05);
+    }
+
+    .result-loading {
+        border-left: 4px solid var(--primary-blue);
+        background: rgba(115, 119, 115, 0.05);
+    }
+
+    nav.navbar { display: none; }
+    main.container { padding: 0; margin: 0; max-width: 100%; }
+
+    @media (max-width: 768px) {
+        .sidebar { transform: translateX(-100%); }
+        .main-content { margin-left: 0; }
+        .debug-tools { grid-template-columns: 1fr; }
+    }
+</style>
+
+<div class="debug-container">
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('dashboard') }}" class="sidebar-logo">
+                <i class="fas fa-shield-alt"></i>
+                QuMail
+            </a>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <div class="nav-item">
+                <a href="{{ url_for('dashboard') }}" class="nav-link">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Dashboard</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('compose') }}" class="nav-link">
+                    <i class="fas fa-edit"></i>
+                    <span>Compose</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('inbox') }}" class="nav-link">
+                    <i class="fas fa-inbox"></i>
+                    <span>Inbox</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('keys') }}" class="nav-link">
+                    <i class="fas fa-key"></i>
+                    <span>Keys</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('debug_keys_page') }}" class="nav-link active">
+                    <i class="fas fa-bug"></i>
+                    <span>Debug</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ url_for('settings') }}" class="nav-link">
+                    <i class="fas fa-cog"></i>
+                    <span>Settings</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Header -->
+        <div class="debug-header">
+            <h1 class="debug-title">
+                <i class="fas fa-bug debug-icon"></i>
+                Encryption Debugging Tools
+            </h1>
+        </div>
+
+        <!-- Debug Tools -->
+        <div class="debug-tools">
+            <!-- Test Encryption Card -->
+            <div class="debug-card">
+                <div class="debug-card-header">
+                    <div class="debug-card-icon">
+                        <i class="fas fa-play"></i>
+                    </div>
+                    <div>
+                        <h3 class="debug-card-title">Test Encryption/Decryption</h3>
+                    </div>
+                </div>
+                <p class="debug-card-description">
+                    Test if the quantum encryption system is working correctly with your current keys and configuration.
+                </p>
+                <button class="btn-glass btn-primary-custom" onclick="testEncryption()">
+                    <i class="fas fa-play"></i>
+                    Run Encryption Test
+                </button>
+                <div id="testResult" class="result-area"></div>
+            </div>
+
+            <!-- Fix Old Emails Card -->
+            <div class="debug-card">
+                <div class="debug-card-header">
+                    <div class="debug-card-icon" style="background: linear-gradient(135deg, #f59e0b, var(--accent-gold));">
+                        <i class="fas fa-wrench"></i>
+                    </div>
+                    <div>
+                        <h3 class="debug-card-title">Fix Old Emails</h3>
+                    </div>
+                </div>
+                <p class="debug-card-description">
+                    Share encryption keys for old emails so recipients can decrypt them properly.
+                </p>
+                <button class="btn-glass btn-warning-custom" onclick="fixOldEmails()">
+                    <i class="fas fa-wrench"></i>
+                    Fix Old Emails
+                </button>
+                <div id="fixResult" class="result-area"></div>
+            </div>
+
+            <!-- Current Keys Card -->
+            <div class="debug-card">
+                <div class="debug-card-header">
+                    <div class="debug-card-icon" style="background: linear-gradient(135deg, var(--primary-blue), #0ea5e9);">
+                        <i class="fas fa-key"></i>
+                    </div>
+                    <div>
+                        <h3 class="debug-card-title">Your Quantum Keys</h3>
+                    </div>
+                </div>
+                <p class="debug-card-description">
+                    View all quantum keys available for decryption, including expired keys for backward compatibility.
+                </p>
+                <button class="btn-glass btn-info-custom" onclick="loadKeys()">
+                    <i class="fas fa-sync"></i>
+                    Refresh Keys
+                </button>
+                <div id="keysList" class="result-area"></div>
+            </div>
+
+                    <hr>
+
+                    <!-- Manual Decryption Test -->
+                    <div class="mb-4">
+                        <h5>Manual Decryption Test</h5>
+                        <p class="text-muted">Test decrypting specific content</p>
+                        <div class="mb-3">
+                            <label for="encryptedInput" class="form-label">Encrypted Content (Base64):</label>
+                            <textarea class="form-control" id="encryptedInput" rows="3" 
+                                      placeholder="HApOV4vWJUT451c5j2coRD1FNFWHil9KLg02KcaGrW1O9pIQVw=="></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="keyIdInput" class="form-label">Key ID:</label>
+                            <input type="text" class="form-control" id="keyIdInput" 
+                                   placeholder="Enter the encryption key ID">
+                        </div>
+                        <button class="btn btn-warning" onclick="testManualDecryption()">
+                            <i class="fas fa-unlock"></i> Try Decrypt
+                        </button>
+                        <div id="decryptResult" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function testEncryption() {
+    document.getElementById('testResult').innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Running encryption test...</div>';
+    
+    fetch('/api/debug/encryption_test', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            message: 'Test message for QuMail encryption debugging'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('testResult').innerHTML = `
+                <div class="alert alert-success">
+                    <h6><i class="fas fa-check-circle"></i> Encryption Test Passed!</h6>
+                    <p><strong>Original:</strong> ${data.original_message}</p>
+                    <p><strong>Encrypted Length:</strong> ${data.encrypted_length} bytes</p>
+                    <p><strong>Decrypted:</strong> ${data.decrypted_message}</p>
+                    <p><strong>Match:</strong> ${data.match ? '✓ Yes' : '✗ No'}</p>
+                    <p><strong>Key Length:</strong> ${data.key_length} bytes</p>
+                </div>
+            `;
+        } else {
+            document.getElementById('testResult').innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-times-circle"></i> Encryption Test Failed</h6>
+                    <p>${data.error}</p>
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('testResult').innerHTML = `
+            <div class="alert alert-danger">
+                <h6><i class="fas fa-times-circle"></i> Error</h6>
+                <p>${error.message}</p>
+            </div>
+        `;
+    });
+}
+
+function fixOldEmails() {
+    document.getElementById('fixResult').innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Fixing old emails...</div>';
+    
+    fetch('/api/fix_old_emails', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('fixResult').innerHTML = `
+                <div class="alert alert-success">
+                    <h6><i class="fas fa-check-circle"></i> Old Emails Fixed!</h6>
+                    <p><strong>Total Processed:</strong> ${data.total}</p>
+                    <p><strong>Keys Shared:</strong> ${data.shared}</p>
+                    <p><strong>Already Shared:</strong> ${data.already_shared}</p>
+                    <p><strong>Failed:</strong> ${data.failed}</p>
+                    <p class="mt-2"><small>Recipients should now be able to decrypt old emails.</small></p>
+                </div>
+            `;
+        } else {
+            document.getElementById('fixResult').innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-times-circle"></i> Fix Failed</h6>
+                    <p>${data.error}</p>
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('fixResult').innerHTML = `
+            <div class="alert alert-danger">
+                <h6><i class="fas fa-times-circle"></i> Error</h6>
+                <p>${error.message}</p>
+            </div>
+        `;
+    });
+}
+
+function loadKeys() {
+    document.getElementById('keysList').innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Loading keys...</div>';
+    
+    fetch('/api/debug/list_keys')
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let html = `<div class="alert alert-info">Found ${data.keys.length} keys</div>`;
+            
+            if (data.keys.length > 0) {
+                html += '<div class="table-responsive"><table class="table table-sm table-bordered">';
+                html += '<thead><tr><th>Key ID</th><th>Purpose</th><th>Recipient</th><th>Created</th><th>Expired</th><th>Length</th></tr></thead><tbody>';
+                
+                data.keys.forEach(key => {
+                    const expiredClass = key.expired ? 'table-warning' : '';
+                    html += `<tr class="${expiredClass}">
+                        <td><code>${key.key_id}</code></td>
+                        <td>${key.purpose || 'N/A'}</td>
+                        <td>${key.recipient || 'N/A'}</td>
+                        <td>${key.created_at ? new Date(key.created_at).toLocaleString() : 'N/A'}</td>
+                        <td>${key.expired ? '<span class="badge bg-warning">Yes</span>' : '<span class="badge bg-success">No</span>'}</td>
+                        <td>${key.key_length} bytes</td>
+                    </tr>`;
+                });
+                
+                html += '</tbody></table></div>';
+            } else {
+                html += '<div class="alert alert-warning">No keys found</div>';
+            }
+            
+            document.getElementById('keysList').innerHTML = html;
+        } else {
+            document.getElementById('keysList').innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-times-circle"></i> Error Loading Keys</h6>
+                    <p>${data.error}</p>
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('keysList').innerHTML = `
+            <div class="alert alert-danger">
+                <h6><i class="fas fa-times-circle"></i> Error</h6>
+                <p>${error.message}</p>
+            </div>
+        `;
+    });
+}
+
+function testManualDecryption() {
+    const encryptedContent = document.getElementById('encryptedInput').value.trim();
+    const keyId = document.getElementById('keyIdInput').value.trim();
+    
+    if (!encryptedContent || !keyId) {
+        document.getElementById('decryptResult').innerHTML = '<div class="alert alert-warning">Please enter both encrypted content and key ID</div>';
+        return;
+    }
+    
+    document.getElementById('decryptResult').innerHTML = '<div class="alert alert-info"><i class="fas fa-spinner fa-spin"></i> Attempting decryption...</div>';
+    
+    fetch('/api/debug/manual_decrypt', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            encrypted_content: encryptedContent,
+            key_id: keyId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('decryptResult').innerHTML = `
+                <div class="alert alert-success">
+                    <h6><i class="fas fa-check-circle"></i> Decryption Successful!</h6>
+                    <p><strong>Decrypted Content:</strong></p>
+                    <pre>${data.decrypted_content}</pre>
+                    <p><small class="text-muted">Method used: ${data.method_used}</small></p>
+                </div>
+            `;
+        } else {
+            document.getElementById('decryptResult').innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-times-circle"></i> Decryption Failed</h6>
+                    <p>${data.error}</p>
+                    ${data.details ? '<p><small>Details: ' + data.details + '</small></p>' : ''}
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('decryptResult').innerHTML = `
+            <div class="alert alert-danger">
+                <h6><i class="fas fa-times-circle"></i> Error</h6>
+                <p>${error.message}</p>
+            </div>
+        `;
+    });
+}
+
+// Auto-load keys on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadKeys();
+});
+</script>
+{% endblock %}

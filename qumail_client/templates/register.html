@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}Register - QuMail{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">
+                        <i class="fas fa-user-plus"></i>
+                        Create QuMail Account
+                    </h4>
+                </div>
+                <div class="card-body">
+                    {% if step == 'verify_otp' %}
+                        <!-- OTP Verification Step -->
+                        <div class="alert alert-info">
+                            <i class="fas fa-envelope"></i>
+                            A verification code has been sent to <strong>{{ email }}</strong>
+                        </div>
+                        
+                        <form method="POST">
+                            <input type="hidden" name="email" value="{{ email }}">
+                            
+                            <div class="mb-3">
+                                <label for="otp_code" class="form-label">
+                                    <i class="fas fa-key"></i>
+                                    Verification Code
+                                </label>
+                                <input type="text" class="form-control" id="otp_code" name="otp_code" 
+                                       placeholder="Enter 6-digit code" maxlength="6" required>
+                                <div class="form-text">Check your email for the verification code.</div>
+                            </div>
+                            
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-check"></i>
+                                    Verify Account
+                                </button>
+                            </div>
+                        </form>
+                        
+                        <div class="text-center mt-3">
+                            <a href="{{ url_for('register') }}" class="text-muted">
+                                <i class="fas fa-arrow-left"></i>
+                                Back to Registration
+                            </a>
+                        </div>
+                    {% else %}
+                        <!-- Registration Step -->
+                        <form method="POST">
+                            <div class="mb-3">
+                                <label for="email" class="form-label">
+                                    <i class="fas fa-envelope"></i>
+                                    Email Address
+                                </label>
+                                <input type="email" class="form-control" id="email" name="email" 
+                                       placeholder="your@email.com" required>
+                                <div class="form-text">This will be your QuMail login email.</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="password" class="form-label">
+                                    <i class="fas fa-lock"></i>
+                                    Password
+                                </label>
+                                <input type="password" class="form-control" id="password" name="password" 
+                                       placeholder="Enter secure password" minlength="6" required>
+                                <div class="form-text">Minimum 6 characters required.</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="confirm_password" class="form-label">
+                                    <i class="fas fa-lock"></i>
+                                    Confirm Password
+                                </label>
+                                <input type="password" class="form-control" id="confirm_password" name="confirm_password" 
+                                       placeholder="Re-enter password" minlength="6" required>
+                            </div>
+                            
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-user-plus"></i>
+                                    Create Account
+                                </button>
+                            </div>
+                        </form>
+                    {% endif %}
+                    
+                    <div class="text-center mt-3">
+                        <p class="mb-0">Already have an account?</p>
+                        <a href="{{ url_for('login') }}" class="btn btn-link">
+                            <i class="fas fa-sign-in-alt"></i>
+                            Login Here
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Security Notice -->
+            <div class="card mt-3">
+                <div class="card-body">
+                    <h6 class="card-title">
+                        <i class="fas fa-shield-alt text-success"></i>
+                        Security Features
+                    </h6>
+                    <ul class="list-unstyled mb-0">
+                        <li><i class="fas fa-check text-success"></i> Email verification required</li>
+                        <li><i class="fas fa-check text-success"></i> Quantum encryption for all emails</li>
+                        <li><i class="fas fa-check text-success"></i> IPFS distributed storage</li>
+                        <li><i class="fas fa-check text-success"></i> Blockchain verification</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Template variables for JavaScript -->
+<script type="text/javascript">
+window.qumail_template_vars = {
+    step: '{{ step or "" }}'
+};
+</script>
+
+<script>
+// Auto-focus on appropriate input
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.qumail_template_vars.step === 'verify_otp') {
+        const otpInput = document.getElementById('otp_code');
+        if (otpInput) {
+            otpInput.focus();
+        }
+    }
+});
+
+// Password confirmation validation
+document.addEventListener('DOMContentLoaded', function() {
+    const password = document.getElementById('password');
+    const confirmPassword = document.getElementById('confirm_password');
+    
+    if (password && confirmPassword) {
+        function validatePassword() {
+            if (password.value !== confirmPassword.value) {
+                confirmPassword.setCustomValidity('Passwords do not match');
+            } else {
+                confirmPassword.setCustomValidity('');
+            }
+        }
+        
+        password.addEventListener('change', validatePassword);
+        confirmPassword.addEventListener('keyup', validatePassword);
+    }
+});
+</script>
+{% endblock %}
