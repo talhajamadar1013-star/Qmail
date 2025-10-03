@@ -458,12 +458,40 @@ def compose():
             subject = request.form.get('subject')
             message = request.form.get('message')
             
+            # Handle file attachments
+            files = request.files.getlist('attachments')
+            
             if not all([recipient, subject, message]):
                 flash('Please fill all fields', 'error')
                 return redirect(url_for('compose'))
             
             def send_email_async():
                 try:
+                    # Handle file attachments
+                    attachment_files = []
+                    attachment_paths = []
+                    
+                    if files:
+                        import tempfile
+                        for file in files:
+                            if file.filename:
+                                # Read file data for IPFS storage
+                                file_data = file.read()
+                                file.seek(0)  # Reset file pointer
+                                
+                                # Add to IPFS attachment list
+                                attachment_files.append({
+                                    'data': file_data,
+                                    'filename': file.filename,
+                                    'content_type': file.content_type or 'application/octet-stream'
+                                })
+                                
+                                # Also save temporarily for email sending
+                                temp_dir = tempfile.gettempdir()
+                                temp_path = os.path.join(temp_dir, f"qumail_attachment_{file.filename}")
+                                file.save(temp_path)
+                                attachment_paths.append(temp_path)
+                    
                     # Generate key (fast)
                     quantum_key = key_manager.generate_quantum_key(
                         user_id=session['user_id'],
@@ -474,7 +502,7 @@ def compose():
                     # Encrypt (fast)
                     encrypted_message = quantum_crypto.encrypt_message(message, quantum_key['key_data'])
                     
-                    # Store on IPFS if available (async)
+                    # Store on IPFS if available (with attachments)
                     ipfs_hash = None
                     blockchain_hash = None
                     
@@ -489,9 +517,17 @@ def compose():
                                 'encryption_key_id': quantum_key['key_id'],
                                 'timestamp': datetime.now().isoformat()
                             }
-                            ipfs_result = ipfs.store_email(email_data_ipfs)
-                            if ipfs_result.get('success'):
-                                ipfs_hash = ipfs_result.get('hash')
+                            
+                            if attachment_files:
+                                # Store email with attachments
+                                ipfs_result = ipfs.store_email_with_attachments(email_data_ipfs, attachment_files)
+                                if ipfs_result.get('success'):
+                                    ipfs_hash = ipfs_result.get('email_hash')
+                            else:
+                                # Store email only
+                                ipfs_result = ipfs.store_email(email_data_ipfs)
+                                if ipfs_result.get('success'):
+                                    ipfs_hash = ipfs_result.get('hash')
                         except Exception as e:
                             logger.warning(f"IPFS storage failed: {e}")
                     
@@ -505,15 +541,24 @@ def compose():
                         except Exception as e:
                             logger.warning(f"Blockchain verification failed: {e}")
                     
-                    # Send email with enhanced data
+                    # Send email with attachments
                     email_data = {
                         'recipient': recipient,
                         'subject': f"[QuMail Secure] {subject}",
                         'body': f"Encrypted message (Key ID: {quantum_key['key_id']})\nIPFS: {ipfs_hash}\nBlockchain: {blockchain_hash}",
-                        'encrypted_content': encrypted_message
+                        'encrypted_content': encrypted_message,
+                        'attachments': attachment_paths
                     }
                     
                     email_client.send_secure_email(email_data)
+                    
+                    # Clean up temporary attachment files
+                    for temp_path in attachment_paths:
+                        try:
+                            if os.path.exists(temp_path):
+                                os.remove(temp_path)
+                        except Exception as e:
+                            logger.warning(f"Failed to clean up temporary file {temp_path}: {e}")
                     
                     # Record with IPFS hash
                     key_manager.record_email_sent(
@@ -770,60 +815,6 @@ def api_delete_key(key_id):
         logger.error(f"Failed to delete key: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/preview_attachment', methods=['POST'])
-def preview_attachment():
-    """Preview attachment before sending email"""
-    try:
-        if 'user_id' not in session:
-            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-        
-        if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'No file provided'}), 400
-        
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'success': False, 'error': 'No file selected'}), 400
-        
-        # Read file data
-        file_data = file.read()
-        file.seek(0)  # Reset file pointer
-        
-        preview_data = {
-            'filename': file.filename,
-            'size': len(file_data),
-            'type': file.content_type or 'application/octet-stream',
-            'last_modified': datetime.now().isoformat()
-        }
-        
-        # Generate preview content based on file type
-        if file.content_type and file.content_type.startswith('text/'):
-            try:
-                preview_data['content'] = file_data.decode('utf-8')[:5000]  # First 5KB
-                preview_data['preview_type'] = 'text'
-            except UnicodeDecodeError:
-                preview_data['preview_type'] = 'binary'
-                preview_data['message'] = 'Binary file - preview not available'
-        elif file.content_type and file.content_type.startswith('image/'):
-            import base64
-            preview_data['content'] = base64.b64encode(file_data).decode('utf-8')
-            preview_data['preview_type'] = 'image'
-        elif file.content_type == 'application/pdf':
-            import base64
-            preview_data['content'] = base64.b64encode(file_data).decode('utf-8')
-            preview_data['preview_type'] = 'pdf'
-        else:
-            preview_data['preview_type'] = 'binary'
-            preview_data['message'] = 'File will be securely encrypted and attached'
-        
-        return jsonify({
-            'success': True,
-            'preview': preview_data
-        })
-        
-    except Exception as e:
-        logger.error(f"Attachment preview failed: {e}")
-        return jsonify({'success': False, 'error': 'Preview failed'}), 500
-
 @app.route('/api/system_status')
 def system_status():
     """System status with lazy component checking"""
@@ -848,115 +839,214 @@ def system_status():
 
 @app.route('/api/send_email', methods=['POST'])
 def send_email():
-    """Fast email sending without heavy operations"""
+    """Send secure email with optional file attachments"""
     try:
         if 'user_id' not in session:
             return jsonify({'success': False, 'error': 'Not authenticated'}), 401
         
-        data = request.get_json() if request.is_json else request.form.to_dict()
+        # Handle both JSON and form data
+        if request.content_type and 'application/json' in request.content_type:
+            data = request.get_json()
+            files = []
+        else:
+            # Form data with possible file uploads
+            data = request.form.to_dict()
+            files = request.files.getlist('attachments')
         
-        sender = session['user_id']
+        sender = session['user_id']  # Always use logged-in user as sender
         recipient = data.get('recipient')
         subject = data.get('subject')
         content = data.get('content')
+        encryption_key = data.get('encryption_key', 'auto')
+        priority = data.get('priority', 'normal')
         
         if not all([recipient, subject, content]):
-            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+            return jsonify({'success': False, 'error': 'Missing required fields: recipient, subject, content'}), 400
         
-        # Fast key generation
-        key_result = key_manager.generate_quantum_key(
-            user_id=sender,
-            recipient=recipient,
-            purpose='email_encryption'
-        )
+        # Handle file attachments and prepare for IPFS storage
+        attachment_files = []
+        attachment_paths = []
+        if files:
+            import tempfile
+            for file in files:
+                if file.filename:
+                    # Read file data for IPFS storage
+                    file_data = file.read()
+                    file.seek(0)  # Reset file pointer
+                    
+                    # Add to IPFS attachment list
+                    attachment_files.append({
+                        'data': file_data,
+                        'filename': file.filename,
+                        'content_type': file.content_type or 'application/octet-stream'
+                    })
+                    
+                    # Also save temporarily for email sending (backup)
+                    temp_dir = tempfile.gettempdir()
+                    temp_path = os.path.join(temp_dir, f"qumail_attachment_{file.filename}")
+                    file.save(temp_path)
+                    attachment_paths.append(temp_path)
+                    logger.info(f"Prepared attachment for IPFS: {file.filename} ({len(file_data)} bytes)")
         
-        # Fast encryption
-        encrypted_content = quantum_crypto.encrypt_message(content, key_result['key_data'])
-        
-        # Store on IPFS and verify on blockchain (async)
-        ipfs_hash = None
-        blockchain_verified = False
-        
-        def process_heavy_operations():
-            nonlocal ipfs_hash, blockchain_verified
-            # IPFS storage
-            ipfs = get_lazy_ipfs()
-            if ipfs:
-                try:
-                    email_data_ipfs = {
-                        'sender': sender,
-                        'recipient': recipient,
-                        'subject': subject,
-                        'encrypted_content': encrypted_content.hex() if isinstance(encrypted_content, bytes) else encrypted_content,
-                        'encryption_key_id': key_result['key_id'],
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    ipfs_result = ipfs.store_email(email_data_ipfs)
-                    if ipfs_result.get('success'):
-                        ipfs_hash = ipfs_result.get('hash')
-                except Exception as e:
-                    logger.warning(f"IPFS storage failed: {e}")
-            
-            # Blockchain verification
-            blockchain = get_lazy_blockchain()
-            if blockchain and ipfs_hash:
-                try:
-                    verification_result = blockchain.verify_email_integrity(ipfs_hash, encrypted_content)
-                    blockchain_verified = verification_result.get('success', False)
-                except Exception as e:
-                    logger.warning(f"Blockchain verification failed: {e}")
-        
-        # Process heavy operations in background
-        thread_pool.submit(process_heavy_operations)
-        
-        # Send email
-        email_send_result = email_client.send_secure_email({
-            'sender': sender,
-            'recipient': recipient,
-            'subject': f"[QuMail Secure] {subject}",
-            'encrypted_content': encrypted_content,
-            'attachments': []
-        })
-        
-        if email_send_result.get('success'):
-            # Record with potential IPFS hash (will be None initially, updated later if needed)
-            key_manager.record_email_sent(
-                user_id=sender,
-                recipient=recipient,
-                subject=subject,
-                ipfs_hash=ipfs_hash,
-                encryption_key_id=key_result['key_id'],
-                encrypted_content=base64.b64encode(encrypted_content if isinstance(encrypted_content, bytes) else encrypted_content.encode('utf-8')).decode('utf-8')
-            )
-            
-            # Share key async
-            def share_key_async():
+        # Generate or use existing key for encryption
+        if encryption_key == 'auto':
+            # Generate new key for this email
+            try:
+                key_result = key_manager.generate_quantum_key(
+                    user_id=sender,
+                    recipient=recipient,
+                    purpose='email_encryption'
+                )
+                encryption_key_id = key_result['key_id']
+                
+                # **CRITICAL**: Share the key with the recipient so they can decrypt
                 try:
                     key_manager.share_key_with_recipient(
-                        key_id=key_result['key_id'],
+                        key_id=encryption_key_id,
                         sender_id=sender,
                         recipient_id=recipient
                     )
-                except:
-                    pass
+                    logger.info(f"Shared decryption key {encryption_key_id} with recipient {recipient}")
+                except Exception as e:
+                    logger.error(f"Failed to share key with recipient: {e}")
+                    # Continue anyway - sender can still decrypt
+                    
+            except Exception as e:
+                return jsonify({'success': False, 'error': f'Failed to generate encryption key: {str(e)}'}), 500
+        else:
+            encryption_key_id = encryption_key
+        
+        # Encrypt content using quantum encryption
+        encrypted_content = quantum_crypto.encrypt_message(content, key_result['key_data'])
+        
+        # Store email with attachments on IPFS
+        email_data = {
+            'sender': sender,
+            'recipient': recipient,
+            'subject': subject,
+            'encrypted_content': encrypted_content.hex() if isinstance(encrypted_content, bytes) else encrypted_content,
+            'encryption_key_id': encryption_key_id,
+            'priority': priority,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Store attachments and email separately
+        ipfs_hash = None
+        attachments_info = []
+        blockchain_verified = False
+        
+        ipfs = get_lazy_ipfs()
+        if ipfs:
+            try:
+                if attachment_files:
+                    logger.info(f"Storing {len(attachment_files)} attachments on IPFS")
+                    # Use new method that handles attachments
+                    ipfs_result = ipfs.store_email_with_attachments(email_data, attachment_files)
+                else:
+                    # No attachments, store email only
+                    ipfs_result = ipfs.store_email(email_data)
+                    ipfs_result = {'success': ipfs_result['success'], 'email_hash': ipfs_result.get('hash'), 'attachments': []}
+                
+                if ipfs_result['success']:
+                    ipfs_hash = ipfs_result['email_hash']
+                    attachments_info = ipfs_result.get('attachments', [])
+                    
+                    logger.info(f"Email stored on IPFS: {ipfs_hash}")
+                    if attachments_info:
+                        logger.info(f"Attachments stored: {[att['filename'] for att in attachments_info]}")
+                        
+            except Exception as e:
+                logger.warning(f"IPFS storage failed: {e}")
+        
+        # Verify on blockchain
+        blockchain = get_lazy_blockchain()
+        if blockchain and ipfs_hash:
+            try:
+                verification_result = blockchain.verify_email_integrity(ipfs_hash, encrypted_content)
+                blockchain_verified = verification_result.get('success', False)
+            except Exception as e:
+                logger.warning(f"Blockchain verification failed: {e}")
+        
+        # Send actual email
+        email_send_result = email_client.send_secure_email({
+            'sender': sender,  # Pass the actual sender
+            'recipient': recipient,
+            'subject': f"[QuMail Secure] {subject}",
+            'encrypted_content': encrypted_content,
+            'attachments': attachment_paths
+        })
+        
+        if email_send_result.get('success'):
+            logger.info(f"Secure email sent from {sender} to {recipient}")
             
-            thread_pool.submit(share_key_async)
+            # Record email statistics for BOTH sender and recipient
+            try:
+                # Record for sender (existing logic)
+                key_manager.record_email_sent(
+                    user_id=sender,
+                    recipient=recipient,
+                    subject=subject,
+                    ipfs_hash=ipfs_hash,
+                    encryption_key_id=encryption_key_id,
+                    encrypted_content=base64.b64encode(encrypted_content if isinstance(encrypted_content, bytes) else encrypted_content.encode('utf-8')).decode('utf-8')
+                )
+                
+                # NEW: Record for recipient as a received email
+                key_manager.record_email_received(
+                    user_id=recipient,
+                    sender=sender,
+                    subject=subject,
+                    ipfs_hash=ipfs_hash,
+                    encryption_key_id=encryption_key_id,
+                    encrypted_content=base64.b64encode(encrypted_content if isinstance(encrypted_content, bytes) else encrypted_content.encode('utf-8')).decode('utf-8')
+                )
+                
+                logger.info(f"Email recorded for both sender ({sender}) and recipient ({recipient})")
+                
+            except Exception as e:
+                logger.warning(f"Failed to record email statistics: {e}")
+            
+            # Clean up temporary attachment files
+            for temp_path in attachment_paths:
+                try:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                        logger.info(f"Cleaned up temporary file: {temp_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary file {temp_path}: {e}")
             
             return jsonify({
                 'success': True, 
                 'message': 'Email sent successfully',
-                'encryption_key_id': key_result['key_id'],
                 'ipfs_hash': ipfs_hash,
-                'blockchain_verified': blockchain_verified
+                'encryption_key_id': encryption_key_id,
+                'blockchain_verified': blockchain_verified,
+                'attachments_count': len(attachment_paths)
             })
         else:
+            # Clean up temporary files even if send failed
+            for temp_path in attachment_paths:
+                try:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                except Exception:
+                    pass
             return jsonify({
                 'success': False, 
-                'error': email_send_result.get('error', 'Send failed')
+                'error': f"Failed to send email: {email_send_result.get('error', 'Unknown error')}"
             }), 500
             
     except Exception as e:
-        return jsonify({'success': False, 'error': 'Send failed'}), 500
+        logger.error(f"Error sending email: {e}")
+        # Clean up any temporary files
+        try:
+            if 'attachment_paths' in locals():
+                for temp_path in attachment_paths:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+        except:
+            pass
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/email/<email_id>')
 def get_email(email_id):
