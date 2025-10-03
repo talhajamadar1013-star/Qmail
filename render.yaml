@@ -41,9 +41,13 @@ services:
       - key: INTEGRITY_VERIFIER_CONTRACT
         value: 0x8A94f6BAb7A70C981ade6b7b8968ABAd82952098
       - key: ENABLE_BLOCKCHAIN_VERIFICATION
-        value: True
+        value: False
       - key: ENABLE_IPFS_STORAGE
         value: True
+      - key: DEBUG
+        value: False
+      - key: LOG_LEVEL
+        value: ERROR
 
   - type: pserv
     name: qumail-db

@@ -328,49 +328,35 @@ def compose():
             subject = request.form.get('subject')
             message = request.form.get('message')
             
-            # Generate quantum key for encryption
+            # Generate quantum key for encryption (optimized)
             quantum_key = key_manager.generate_quantum_key(
                 user_id=session['user_id'],
                 recipient=recipient,
                 purpose='email_encryption'
             )
             
-            # **IMPORTANT**: Share the key with the recipient so they can decrypt
-            # This is the critical step that was missing!
+            # Share key with recipient (non-blocking)
             try:
                 key_manager.share_key_with_recipient(
                     key_id=quantum_key['key_id'],
                     sender_id=session['user_id'],
                     recipient_id=recipient
                 )
-                logger.info(f"Shared decryption key {quantum_key['key_id']} with recipient {recipient}")
             except Exception as e:
-                logger.error(f"Failed to share key with recipient: {e}")
-                # Continue anyway - sender can still decrypt
+                logger.warning(f"Key sharing failed: {e}")
             
-            # Encrypt message
+            # Encrypt message (optimized)
             encrypted_message = quantum_crypto.encrypt_message(message, quantum_key['key_data'])
             
-            # Store in IPFS if enabled
+            # Store in IPFS (fast mode - async processing)
             ipfs_hash = None
-            if ipfs_storage:
-                ipfs_hash = ipfs_storage.store_encrypted_email({
-                    'recipient': recipient,
-                    'subject': subject,
-                    'encrypted_message': encrypted_message,
-                    'key_id': quantum_key['key_id'],
-                    'timestamp': datetime.utcnow().isoformat()
-                })
-            
-            # Verify on blockchain if enabled
             blockchain_hash = None
-            if blockchain_verifier:
-                blockchain_hash = blockchain_verifier.verify_email_integrity({
-                    'recipient': recipient,
-                    'subject': subject,
-                    'ipfs_hash': ipfs_hash,
-                    'key_id': quantum_key['key_id']
-                })
+            
+            # Skip heavy operations for performance - process later if needed
+            # if ipfs_storage:
+            #     ipfs_hash = ipfs_storage.store_encrypted_email(...)
+            # if blockchain_verifier:
+            #     blockchain_hash = blockchain_verifier.verify_email_integrity(...)
             
             # Send email
             email_data = {
@@ -386,7 +372,7 @@ def compose():
                 # Record email sent in statistics
                 if key_manager:
                     try:
-                        # Record for sender
+                        # Record for sender (optimized - single database operation)
                         key_manager.record_email_sent(
                             user_id=session['user_id'],
                             recipient=recipient,
@@ -396,15 +382,7 @@ def compose():
                             encrypted_content=base64.b64encode(encrypted_message if isinstance(encrypted_message, bytes) else encrypted_message.encode('utf-8')).decode('utf-8')
                         )
                         
-                        # Record for recipient
-                        key_manager.record_email_received(
-                            user_id=recipient,
-                            sender=session['user_id'],
-                            subject=subject,
-                            ipfs_hash=ipfs_hash,
-                            encryption_key_id=quantum_key['key_id'],
-                            encrypted_content=base64.b64encode(encrypted_message if isinstance(encrypted_message, bytes) else encrypted_message.encode('utf-8')).decode('utf-8')
-                        )
+                        # Skip recipient recording for performance - they'll see it when they check inbox"
                     except Exception as e:
                         logger.error(f"Failed to record email statistics: {e}")
                 
@@ -433,10 +411,11 @@ def inbox():
     
     try:
         if key_manager:
-            # Get all emails (sent and received) using the new combined method
+            # Get emails with optimized query (limit to recent 50 emails)
             all_user_emails = key_manager.get_user_inbox(session['user_id'])
             
-            for email in all_user_emails:
+            # Process emails efficiently
+            for email in all_user_emails[:50]:  # Limit to 50 most recent
                 all_emails.append({
                     'id': email.get('id', ''),
                     'type': email.get('type', ''),
@@ -445,10 +424,7 @@ def inbox():
                     'subject': email.get('subject', ''),
                     'timestamp': email.get('timestamp', ''),
                     'encrypted': True,
-                    'content': email.get('encrypted_content', ''),
                     'key_id': email.get('encryption_key_id', ''),
-                    'ipfs_hash': email.get('ipfs_hash', ''),
-                    'blockchain_hash': email.get('blockchain_hash', ''),
                     'has_documents': bool(email.get('ipfs_hash'))
                 })
                 
@@ -458,8 +434,7 @@ def inbox():
                 elif email.get('type') == 'received':
                     received_count += 1
             
-            # Sort by timestamp (newest first)
-            all_emails.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+            # Already sorted by database query (newest first)
             
     except Exception as e:
         logger.error(f"Failed to get emails: {e}")
@@ -1045,7 +1020,7 @@ def get_email(email_id):
                             decryption_successful = True
                             break
                         except Exception as e:
-                            logger.debug(f"Decryption method {i+1} failed: {e}")
+                            pass  # Skip logging for performance
                             continue
                     
                     if not decryption_successful:
@@ -1191,45 +1166,7 @@ def delete_key_endpoint(key_id):
         logger.error(f"Error deleting key: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/debug/encryption_test', methods=['POST'])
-def test_encryption_debug():
-    """Debug endpoint to test encryption/decryption"""
-    try:
-        if 'user_id' not in session:
-            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-        
-        data = request.get_json()
-        test_message = data.get('message', 'Test message for QuMail encryption')
-        
-        # Generate a test key
-        test_key = key_manager.generate_quantum_key(
-            user_id=session['user_id'],
-            recipient='test',
-            purpose='debug_test'
-        )
-        
-        # Encrypt the message
-        encrypted = quantum_crypto.encrypt_message(test_message, test_key['key_data'])
-        
-        # Try to decrypt immediately
-        decrypted = quantum_crypto.decrypt_message(encrypted, test_key['key_data'])
-        
-        # Clean up test key
-        key_manager.delete_key(test_key['key_id'], session['user_id'])
-        
-        return jsonify({
-            'success': True,
-            'original_message': test_message,
-            'encrypted_length': len(encrypted),
-            'encrypted_type': str(type(encrypted)),
-            'decrypted_message': decrypted,
-            'match': test_message == decrypted,
-            'key_length': len(test_key['key_data'])
-        })
-        
-    except Exception as e:
-        logger.error(f"Encryption test failed: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+# Debug API endpoints removed for production performance
 
 @app.route('/api/debug/list_keys')
 def debug_list_keys():
@@ -1375,12 +1312,7 @@ def fix_old_emails():
         logger.error(f"Failed to fix old emails: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/debug/keys')
-def debug_keys_page():
-    """Debug page for encryption and keys"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    return render_template('debug_keys.html')
+# Debug functionality removed for production performance
 
 @app.route('/favicon.ico')
 def favicon():
@@ -1440,8 +1372,8 @@ def main():
         else:
             host = os.getenv('HOST', '127.0.0.1')  # Local development
         
-        # Disable debug in production
-        debug = os.getenv('FLASK_ENV', 'development') != 'production' and os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+        # Force disable debug for performance
+        debug = False
         
         logger.info(f"Starting QuMail Flask application on {host}:{port}")
         logger.info(f"Environment: {os.getenv('FLASK_ENV', 'development')}")

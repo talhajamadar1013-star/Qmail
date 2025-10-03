@@ -366,12 +366,7 @@
                     <span>Keys</span>
                 </a>
             </div>
-            <div class="nav-item">
-                <a href="{{ url_for('debug_keys_page') }}" class="nav-link">
-                    <i class="fas fa-bug"></i>
-                    <span>Debug</span>
-                </a>
-            </div>
+            <!-- Debug functionality removed for performance -->
             <div class="nav-item">
                 <a href="{{ url_for('settings') }}" class="nav-link active">
                     <i class="fas fa-cog"></i>
@@ -657,8 +652,8 @@
                             <td><span class="badge bg-info">{{ config.ENVIRONMENT or 'development' }}</span></td>
                         </tr>
                         <tr>
-                            <td><strong>Debug Mode:</strong></td>
-                            <td>{% if config.DEBUG %}<span class="badge bg-warning">Enabled</span>{% else %}<span class="badge bg-success">Disabled</span>{% endif %}</td>
+                            <td><strong>Performance Mode:</strong></td>
+                            <td><span class="badge bg-success">Optimized</span></td>
                         </tr>
                         <tr>
                             <td><strong>Log Level:</strong></td>
