@@ -136,10 +136,11 @@ def initialize_components():
             logger.warning(f"Email client failed: {e}")
             email_client = None
         
-        # Skip heavy components for performance - lazy load when needed
+        # Initialize heavy components in background for performance
         blockchain_verifier = None
         ipfs_storage = None
-        logger.info("Heavy components disabled for performance")
+        initialize_heavy_components()
+        logger.info("Heavy components loading in background")
             
     except Exception as e:
         logger.error(f"Initialization error: {e}")
@@ -153,9 +154,12 @@ def get_lazy_blockchain():
     global blockchain_verifier
     if blockchain_verifier is None and config:
         try:
+            from qumail_client.blockchain.verification import BlockchainVerifier
             blockchain_verifier = BlockchainVerifier(config)
-        except:
-            pass
+            logger.info("Blockchain verifier loaded successfully")
+        except Exception as e:
+            logger.warning(f"Blockchain verifier failed to load: {e}")
+            blockchain_verifier = None
     return blockchain_verifier
 
 @lru_cache(maxsize=32)
@@ -164,10 +168,27 @@ def get_lazy_ipfs():
     global ipfs_storage
     if ipfs_storage is None and config:
         try:
+            from qumail_client.ipfs.storage import IPFSStorage
             ipfs_storage = IPFSStorage(config)
-        except:
-            pass
+            logger.info("IPFS storage loaded successfully")
+        except Exception as e:
+            logger.warning(f"IPFS storage failed to load: {e}")
+            ipfs_storage = None
     return ipfs_storage
+
+def initialize_heavy_components():
+    """Initialize blockchain and IPFS in background thread"""
+    def init_background():
+        try:
+            # Initialize blockchain verifier
+            get_lazy_blockchain()
+            # Initialize IPFS storage  
+            get_lazy_ipfs()
+        except Exception as e:
+            logger.warning(f"Background component init failed: {e}")
+    
+    # Run in background thread
+    thread_pool.submit(init_background)
 
 @app.route('/health')
 def health_check():
@@ -453,22 +474,53 @@ def compose():
                     # Encrypt (fast)
                     encrypted_message = quantum_crypto.encrypt_message(message, quantum_key['key_data'])
                     
-                    # Send email (fast - no heavy processing)
+                    # Store on IPFS if available (async)
+                    ipfs_hash = None
+                    blockchain_hash = None
+                    
+                    ipfs = get_lazy_ipfs()
+                    if ipfs:
+                        try:
+                            email_data_ipfs = {
+                                'sender': session['user_id'],
+                                'recipient': recipient,
+                                'subject': subject,
+                                'encrypted_content': encrypted_message.hex() if isinstance(encrypted_message, bytes) else encrypted_message,
+                                'encryption_key_id': quantum_key['key_id'],
+                                'timestamp': datetime.now().isoformat()
+                            }
+                            ipfs_result = ipfs.store_email(email_data_ipfs)
+                            if ipfs_result.get('success'):
+                                ipfs_hash = ipfs_result.get('hash')
+                        except Exception as e:
+                            logger.warning(f"IPFS storage failed: {e}")
+                    
+                    # Verify on blockchain if available (async)
+                    blockchain = get_lazy_blockchain()
+                    if blockchain and ipfs_hash:
+                        try:
+                            verification_result = blockchain.verify_email_integrity(ipfs_hash, encrypted_message)
+                            if verification_result.get('success'):
+                                blockchain_hash = verification_result.get('hash')
+                        except Exception as e:
+                            logger.warning(f"Blockchain verification failed: {e}")
+                    
+                    # Send email with enhanced data
                     email_data = {
                         'recipient': recipient,
-                        'subject': f"[QuMail] {subject}",
-                        'body': f"Encrypted: {quantum_key['key_id']}",
+                        'subject': f"[QuMail Secure] {subject}",
+                        'body': f"Encrypted message (Key ID: {quantum_key['key_id']})\nIPFS: {ipfs_hash}\nBlockchain: {blockchain_hash}",
                         'encrypted_content': encrypted_message
                     }
                     
                     email_client.send_secure_email(email_data)
                     
-                    # Record (single operation)
+                    # Record with IPFS hash
                     key_manager.record_email_sent(
                         user_id=session['user_id'],
                         recipient=recipient,
                         subject=subject,
-                        ipfs_hash=None,
+                        ipfs_hash=ipfs_hash,
                         encryption_key_id=quantum_key['key_id'],
                         encrypted_content=base64.b64encode(encrypted_message if isinstance(encrypted_message, bytes) else encrypted_message.encode('utf-8')).decode('utf-8')
                     )
@@ -634,11 +686,23 @@ def view_email(email_id):
         flash('Error loading email', 'error')
         return redirect(url_for('inbox'))
     
+    # Try to get IPFS document if available
+    ipfs_document = None
+    if email_data and email_data.get('ipfs_hash'):
+        ipfs = get_lazy_ipfs()
+        if ipfs:
+            try:
+                ipfs_result = ipfs.retrieve_email(email_data['ipfs_hash'])
+                if ipfs_result.get('success'):
+                    ipfs_document = ipfs_result.get('data')
+            except Exception as e:
+                logger.warning(f"IPFS retrieval failed: {e}")
+    
     # Cache result
     result_data = {
         'email': email_data,
         'decrypted_content': decrypted_content,
-        'ipfs_document': None  # Skip IPFS for performance
+        'ipfs_document': ipfs_document
     }
     set_cache(cache_key, result_data, 180)
     
@@ -708,24 +772,24 @@ def api_delete_key(key_id):
 
 @app.route('/api/system_status')
 def system_status():
-    """Fast system status check with caching"""
+    """System status with lazy component checking"""
     cache_key = "system_status"
-    cached_status = get_cached(cache_key, 60)  # 1 minute cache
+    cached_status = get_cached(cache_key, 30)  # 30 second cache for more responsive updates
     
     if cached_status:
         return jsonify(cached_status)
     
-    # Fast status check (no heavy testing)
+    # Check components (with lazy loading)
     status = {
         'quantum_encryption': quantum_crypto is not None,
-        'blockchain_verification': False,  # Disabled for performance
-        'ipfs_storage': False,            # Disabled for performance  
+        'blockchain_verification': get_lazy_blockchain() is not None,
+        'ipfs_storage': get_lazy_ipfs() is not None,
         'key_manager': key_manager is not None,
         'database_connected': key_manager is not None,
         'email_client': email_client is not None
     }
     
-    set_cache(cache_key, status, 60)
+    set_cache(cache_key, status, 30)
     return jsonify(status)
 
 @app.route('/api/send_email', methods=['POST'])
@@ -755,22 +819,58 @@ def send_email():
         # Fast encryption
         encrypted_content = quantum_crypto.encrypt_message(content, key_result['key_data'])
         
-        # Fast email send (no heavy processing)
+        # Store on IPFS and verify on blockchain (async)
+        ipfs_hash = None
+        blockchain_verified = False
+        
+        def process_heavy_operations():
+            nonlocal ipfs_hash, blockchain_verified
+            # IPFS storage
+            ipfs = get_lazy_ipfs()
+            if ipfs:
+                try:
+                    email_data_ipfs = {
+                        'sender': sender,
+                        'recipient': recipient,
+                        'subject': subject,
+                        'encrypted_content': encrypted_content.hex() if isinstance(encrypted_content, bytes) else encrypted_content,
+                        'encryption_key_id': key_result['key_id'],
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    ipfs_result = ipfs.store_email(email_data_ipfs)
+                    if ipfs_result.get('success'):
+                        ipfs_hash = ipfs_result.get('hash')
+                except Exception as e:
+                    logger.warning(f"IPFS storage failed: {e}")
+            
+            # Blockchain verification
+            blockchain = get_lazy_blockchain()
+            if blockchain and ipfs_hash:
+                try:
+                    verification_result = blockchain.verify_email_integrity(ipfs_hash, encrypted_content)
+                    blockchain_verified = verification_result.get('success', False)
+                except Exception as e:
+                    logger.warning(f"Blockchain verification failed: {e}")
+        
+        # Process heavy operations in background
+        thread_pool.submit(process_heavy_operations)
+        
+        # Send email
         email_send_result = email_client.send_secure_email({
             'sender': sender,
             'recipient': recipient,
-            'subject': f"[QuMail] {subject}",
+            'subject': f"[QuMail Secure] {subject}",
             'encrypted_content': encrypted_content,
-            'attachments': []  # No attachments for performance
+            'attachments': []
         })
         
         if email_send_result.get('success'):
-            # Single database operation
+            # Record with potential IPFS hash (will be None initially, updated later if needed)
             key_manager.record_email_sent(
                 user_id=sender,
                 recipient=recipient,
                 subject=subject,
-                ipfs_hash=None,
+                ipfs_hash=ipfs_hash,
                 encryption_key_id=key_result['key_id'],
                 encrypted_content=base64.b64encode(encrypted_content if isinstance(encrypted_content, bytes) else encrypted_content.encode('utf-8')).decode('utf-8')
             )
@@ -791,7 +891,9 @@ def send_email():
             return jsonify({
                 'success': True, 
                 'message': 'Email sent successfully',
-                'encryption_key_id': key_result['key_id']
+                'encryption_key_id': key_result['key_id'],
+                'ipfs_hash': ipfs_hash,
+                'blockchain_verified': blockchain_verified
             })
         else:
             return jsonify({
@@ -1024,20 +1126,25 @@ def create_directories():
         os.makedirs(directory, exist_ok=True)
 
 def main():
-    """High-performance application entry point"""
+    """High-performance application entry point with background component loading"""
     try:
-        # Skip directory creation in production
-        # create_directories()
+        # Create directories if needed
+        create_directories()
         
-        # Fast initialization
+        # Fast initialization of critical components
         initialize_components()
         
         # Production configuration
         port = int(os.getenv('PORT', 10000))
         host = '0.0.0.0' if os.getenv('PORT') else '127.0.0.1'
         
-        # Skip database table creation for faster startup
-        # Tables should already exist in production
+        # Create database tables if needed
+        try:
+            with app.app_context():
+                db.create_all()
+                logger.info("Database tables verified")
+        except Exception as e:
+            logger.warning(f"Database setup issue: {e}")
         
         # High-performance Flask configuration
         app.config.update(
